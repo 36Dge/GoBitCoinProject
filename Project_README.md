@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 btcd
 ====
 
@@ -141,3 +142,7 @@ verify the signature perform the following:
 ## License
 
 btcd is licensed under the [copyfree](http://copyfree.org) ISC License.
+=======
+# GoBitCoinProject
+go语言比特币完整节点
+>>>>>>> d8e017fc15304d0d2c9bf44f001ab9c2b08af1bc

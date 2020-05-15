@@ -3,6 +3,7 @@ module BtcoinProject
 go 1.14
 
 require (
+	github.com/36Dge/GoBitCoinProject v0.0.0-20200515030703-d8e017fc1530 // indirect
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v0.0.0-20180706230648-ab6388e0c60a

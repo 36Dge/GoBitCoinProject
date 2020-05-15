@@ -1,3 +1,5 @@
+github.com/36Dge/GoBitCoinProject v0.0.0-20200515030703-d8e017fc1530 h1:mlP68TcW+BOpB/1OCpTo9lyI+8amQyDaP3qY5ooASvA=
+github.com/36Dge/GoBitCoinProject v0.0.0-20200515030703-d8e017fc1530/go.mod h1:On21VKYbkOwIhXUaDVfqLtMumvEhLr0wn0mwgjKKlCY=
 github.com/aead/siphash v1.0.1/go.mod h1:Nywa3cDsYNNK3gaciGTWPwHt0wlpNV15vwmswBAUSII=
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f/go.mod h1:TdznJufoqS23FtqVCzL0ZqgP5MqXbb4fg/WgDys70nA=
 github.com/btcsuite/btcutil v0.0.0-20180706230648-ab6388e0c60a/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
