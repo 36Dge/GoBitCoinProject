@@ -14,7 +14,7 @@ the criteria that are required for a transaction to be considered standard
 are that it is of the most-recently supported version, finalized, does not
 exceed a specific size, and only consists of specific script forms.
 
-// 摘引至：Project_README.md 文件
+// 摘引至：README.md 文件
 
 */
 
