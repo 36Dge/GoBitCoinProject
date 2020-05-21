@@ -54,6 +54,23 @@ type DNSSeed struct {
 //投票通过的改变。这是BIP0009的一部分
 
 type ConsensusDeployment struct {
+
+
+	//BIP-9
+	//建议的更改由包含以下字段的数据结构标识：
+
+	//name
+	//用于区分提案的简短说明。大多数情况下，描述该建议的BIP为“bipN”，其中N是BIP编号。
+
+	//bit
+	//0 到 28, 矿工用来表示批准该提案的区块版本中的位。
+
+	//starttime
+	//信号开始的时间（基于过去中值时间，MTP），在此之后，该位的值被解释为该提议的信号准备就绪。
+
+	//endtime
+	//如果更改未达到激活阈值，则认为拒绝的时间点（基于MTP）。
+
 	//位号定义版本中的特定位号
 	//这个特定的软分叉部署是指
 	BitNumber uint8
@@ -163,6 +180,10 @@ type Params struct {
 	//MinerConfirmationWindow是每个阈值中的块数
 	//状态重定目标窗口
 	//部署定义要投票的特定共识规则更改在。
+
+	//与BIP-34不同，BIP-9基于2016个区块的难度重新设定目标阶段计算整个区间的激活信号。
+	//对于每个重新定位周期，如果支持提案的信号的块的总数超过95％（2016块中1916块），
+	//则该提议将在下一个重新设定目标阶段内激活。
 
 	RuleChangeActivationThreshold uint32
 	MinerConfirmationWindow       uint32

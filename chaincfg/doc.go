@@ -4,55 +4,63 @@ package chaincfg
 //回归测试和测试网（版本3）。这些网络不兼容彼此（每个共享一个不同的Genesis块）
 //和软件应该在应用程序上使用一个网络的输入时处理错误
 //在其他网络上运行的实例。
+// Package chaincfg defines chain configuration parameters.
 //
-//对于库包，chaincfg提供了查找链的功能
-//参数和编码在传递*参数时变魔术。旧的API未更新
-//对于传递*参数的新约定，可以查找
-//Wire.bitcoinnet使用paramsfornet，但请注意此用法是
-//已弃用，将来将从chainecfg中删除。
+// In addition to the main Bitcoin network, which is intended for the transfer
+// of monetary value, there also exists two currently active standard networks:
+// regression test and testnet (version 3).  These networks are incompatible
+// with each other (each sharing a different genesis block) and software should
+// handle errors where input intended for one network is used on an application
+// instance running on a different network.
 //
-//对于主包，可以为（通常是全局的）var分配
-//作为应用程序的“活动”网络使用的标准参数变量之一。
-//当需要一个网络参数时，可以通过这个
-//变量（直接或隐藏在库调用中）。
+// For library packages, chaincfg provides the ability to lookup chain
+// parameters and encoding magics when passed a *Params.  Older APIs not updated
+// to the new convention of passing a *Params may lookup the parameters for a
+// wire.BitcoinNet using ParamsForNet, but be aware that this usage is
+// deprecated and will be removed from chaincfg in the future.
 //
-//包装主体
+// For main packages, a (typically global) var may be assigned the address of
+// one of the standard Param vars for use as the application's "active" network.
+// When a network parameter is needed, it may then be looked up through this
+// variable (either directly, or hidden in a library call).
 //
-//进口（
-//“旗帜”
-//“FMT”
-//“日志”
+//  package main
 //
-//"github.com/btcsuite/btcutil"
-//“github.com/btcsuite/btcd/chaincfg（Github.com/btcsuite/btcd/chaincfg）”。
-//）
+//  import (
+//          "flag"
+//          "fmt"
+//          "log"
 //
-//var testnet=flag.bool（“testnet”，false，“在testnet比特币网络上操作”）。
+//          "github.com/btcsuite/btcutil"
+//          "github.com/btcsuite/btcd/chaincfg"
+//  )
 //
-////默认情况下（不带-testnet），使用mainnet。
-//var chainparams=&chaincfg.mainnetparams
+//  var testnet = flag.Bool("testnet", false, "operate on the testnet Bitcoin network")
 //
-//FUNC主体（）
-//标记（PARSE）
+//  // By default (without -testnet), use mainnet.
+//  var chainParams = &chaincfg.MainNetParams
 //
-////如果在testnet上操作，则修改活动的网络参数。
-//如果*TestNET{
-//chainParams=&chainCfg.testNet3Params
-//}
+//  func main() {
+//          flag.Parse()
 //
-//…
+//          // Modify active network parameters if operating on testnet.
+//          if *testnet {
+//                  chainParams = &chaincfg.TestNet3Params
+//          }
 //
-////创建并打印特定于活动网络的新付款地址。
-//pubkeyhash：=make（[]字节，20）
-//地址，错误：=btcutil.newAddressPubKeyHash（PubKeyHash，chainParams）
-//如果犯错！= nIL{
-//日志致命（错误）
-//}
-//fmt.println（地址）
-//}
+//          // later...
 //
-//如果应用程序不使用三个标准比特币网络中的一个，
-//可以创建新的params结构，该结构定义
-//非标准网络。作为一般经验法则，所有网络参数
-//应该是网络独有的，但参数冲突仍然可能发生
-//（不幸的是，使用regtest和testnet3共享magics就是这样）。
+//          // Create and print new payment address, specific to the active network.
+//          pubKeyHash := make([]byte, 20)
+//          addr, err := btcutil.NewAddressPubKeyHash(pubKeyHash, chainParams)
+//          if err != nil {
+//                  log.Fatal(err)
+//          }
+//          fmt.Println(addr)
+//  }
+//
+// If an application does not use one of the three standard Bitcoin networks,
+// a new Params struct may be created which defines the parameters for the
+// non-standard network.  As a general rule of thumb, all network parameters
+// should be unique to the network, but parameter collisions can still occur
+// (unfortunately, this is the case with regtest and testnet3 sharing magics).i
