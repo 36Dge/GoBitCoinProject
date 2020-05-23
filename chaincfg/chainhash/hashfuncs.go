@@ -25,3 +25,5 @@ func DoubleHashH(b []byte) Hash {
 	first := sha256.Sum256(b)
 	return Hash(sha256.Sum256(first[:]))
 }
+
+//over
