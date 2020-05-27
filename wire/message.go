@@ -1,9 +1,11 @@
 package wire
 
 import (
+	"BtcoinProject/chaincfg/chainhash"
 	"bytes"
 	"fmt"
 	"io"
+	"unicode/utf8"
 )
 
 //messageheadersize is the number of bytes in a bitcion message header
@@ -19,7 +21,7 @@ const CommandSize = 12
 
 //maxmessagepayload is the maximum bytes a message can be regardless of other
 //individual limints imposed by messages themselves.
-const MaxMemessagePayload = (1024 * 1024 * 32) //32MB
+const MaxMessagePayload = (1024 * 1024 * 32) //32MB
 
 //command used in the bitcoin message headers which describe the types of message
 const (
@@ -187,7 +189,7 @@ func makeEmptyMessage(command string) (Message, error) {
 type messageHeader struct {
 	magic    BitcoinNet // 4bytes
 	command  string     // 12bytes
-	lenght   uint32     // 4 bytes
+	length   uint32     // 4 bytes
 	checksum [4]byte    //4 bytes
 }
 
@@ -209,7 +211,7 @@ func readMessageHeader(r io.Reader) (int, *messageHeader, error) {
 	// bytes
 	hdr := messageHeader{}
 	var command [CommandSize]byte
-	readElements(hr, &hdr.magic, &command, &hdr.lenght, &hdr.checksum)
+	readElements(hr, &hdr.magic, &command, &hdr.length, &hdr.checksum)
 	return n, &hdr, nil
 }
 
@@ -271,15 +273,162 @@ func WriteMessageWithEncodingN(w io.Writer, msg Message, pver uint32, btcnet Bit
 
 	//encode the message payload
 
+	var bw bytes.Buffer
+	err := msg.BtcEncode(&bw, pver, encoding)
+	if err != nil {
+		return totalBytes, err
+	}
+	payload := bw.Bytes()
+	lenp := len(payload)
 
+	//enforce maximum overall message payload
+	if lenp > MaxMessagePayload {
+		str := fmt.Sprintf("message payload is too large - encoded "+
+			"%d bytes, but maximum message payload is %d bytes", lenp, MaxMessagePayload)
+		return totalBytes, messageError("WriteMessage", str)
+	}
 
+	//enforce maximum message payload on the message type .
+	mpl := msg.MaxPayloadLength(pver)
+	if uint32(lenp) > mpl {
+		str := fmt.Sprintf("message payload is too large - encoded "+
+			"%d bytes, but maximum message payload size for "+
+			"messages of type [%s] is %d.", lenp, cmd, mpl)
+		return totalBytes, messageError("WriteMessage", str)
+	}
 
+	//create header for the message
+	hdr := messageHeader{}
+	hdr.magic = btcnet
+	hdr.command = cmd
+	hdr.length = uint32(lenp)
+	copy(hdr.checksum[:], chainhash.DoubleHashB(payload)[0:4])
 
+	//encode the header for the message ,this is done to a buffer
+	//rather than directly to the wirter since writeelements does
+	//not return the number of bytes wirtten
+	hw := bytes.NewBuffer(make([]byte, 0, MessageHeaderSize))
+	writeElements(hw, hdr.magic, command, hdr.length, hdr.checksum)
 
+	//write header
+	n, err := w.Write(hw.Bytes())
+	totalBytes += n
+	if err != nil {
+		return totalBytes, err
+	}
 
+	//only write the payload if there is one ,e,g ,verack message do not
+	//have one.
+	if len(payload) > 0 {
+		n, err = w.Write(payload)
+		totalBytes += n
+	}
 
+	return totalBytes, err
 
+}
 
+//readmessagewithecoding reads,validates ,and parses the next bitcoin
+//message form r for the provided protocol version and bitcoin newwork,it retruns
+//the numbers of bytes read in addition to the parsed message and raw bytes
+//which comprise the message .this function is the same as readmessagen except
+//it allows the caller to specify which message encoding is to consult hwen
+// decoding wire message
+func ReadMessageWithEncodingN(r io.Reader, pver uint32, btcnet BitcoinNet,
+	enc MessageEncoding) (int, Message, []byte, error) {
+	totalBytes := 0
+	n, hdr, err := readMessageHeader(r)
+	totalBytes += n
+	if err != nil {
+		return totalBytes, nil, nil, err
+	}
 
+	//enforce maximum message payload
+	if hdr.length > MaxMessagePayload {
+		str := fmt.Sprintf("message payload is too large - header "+
+			"indicates %d bytes, but max message payload is %d "+
+			"bytes.", hdr.length, MaxMessagePayload)
+		return totalBytes, nil, nil, messageError("ReadMessage", str)
+	}
 
+	//check for messages from the wrong bitcoin newwork
+	if hdr.magic != btcnet {
+		discardInput(r, hdr.length)
+		str := fmt.Sprintf("message from other network [%v]", hdr.magic)
+		return totalBytes, nil, nil, messageError("ReadMessage", str)
+	}
+
+	//check for malformed commands
+	command := hdr.command
+	if !utf8.ValidString(command) {
+		discardInput(r, hdr.length)
+		str := fmt.Sprintf("invalid command %v", []byte(command))
+		return totalBytes, nil, nil, messageError("ReadMessage", str)
+	}
+
+	//create struct of appropriate message type based on the command.
+	msg, err := makeEmptyMessage(command)
+	if err != nil {
+		discardInput(r, hdr.length)
+		return totalBytes, nil, nil, messageError("ReadMessage", err.Error())
+	}
+
+	//check for maximun length based on the message type as a malicious cleents
+	//could otherwise create a well-formed header and set the length to
+	//max numbers in order to exhaust the machine,s memory.
+
+	mpl := msg.MaxPayloadLength(pver)
+	if hdr.length > mpl {
+		discardInput(r, hdr.length)
+		str := fmt.Sprintf("payload exceeds max length - header "+
+			"indicates %v bytes, but max payload size for "+
+			"messages of type [%v] is %v.", hdr.length, command, mpl)
+		return totalBytes, nil, nil, messageError("ReadMessage", str)
+	}
+
+	//read payload
+	payload := make([]byte, hdr.length)
+	n, err = io.ReadFull(r, payload)
+	totalBytes += n
+	if err != nil {
+		return totalBytes, nil, nil, err
+	}
+
+	//test checksum.
+	checksum := chainhash.DoubleHashB(payload)[0:4]
+	if !bytes.Equal(checksum[:], hdr.checksum[:]) {
+		str := fmt.Sprintf("payload checksum failed - header "+
+			"indicates %v, but actual checksum is %v.",
+			hdr.checksum, checksum)
+		return totalBytes, nil, nil, messageError("ReadMessage", str)
+	}
+
+	//unmarshal message ,note :this must be a *bytes.buffer since
+	//the msgversion btcdecode function requires it.
+	pr := bytes.NewBuffer(payload)
+	err = msg.BtcDecod(pr, pver, enc)
+	if err != nil {
+		return totalBytes, nil, nil, err
+	}
+	return totalBytes, msg, payload, nil
+}
+
+//readmessagen reads,validates ,and parses the next bitcoin message from f
+//for the provided protocol version and bitcion network.it returns the number
+//of bytes read in addition to the parsed message and raw bytes which comprise
+//the message,this funcions is the same as readmessage except it also returns
+//the number of bytes read.
+func ReadMessageN(r io.Reader,pver uint32,btcnet BitcoinNet)(int,Message,[]byte,error){
+	return ReadMessageWithEncodingN(r, pver, btcnet, BaseEncoding)
+}
+
+// ReadMessage reads, validates, and parses the next bitcoin Message from r for
+// the provided protocol version and bitcoin network.  It returns the parsed
+// Message and raw bytes which comprise the message.  This function only differs
+// from ReadMessageN in that it doesn't return the number of bytes read.  This
+// function is mainly provided for backwards compatibility with the original
+// API, but it's also useful for callers that don't care about byte counts.
+func ReadMessage(r io.Reader, pver uint32, btcnet BitcoinNet) (Message, []byte, error) {
+	_, msg, buf, err := ReadMessageN(r, pver, btcnet)
+	return msg, buf, err
 }
