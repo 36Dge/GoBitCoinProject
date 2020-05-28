@@ -432,3 +432,6 @@ func ReadMessage(r io.Reader, pver uint32, btcnet BitcoinNet) (Message, []byte, 
 	_, msg, buf, err := ReadMessageN(r, pver, btcnet)
 	return msg, buf, err
 }
+
+//over
+
