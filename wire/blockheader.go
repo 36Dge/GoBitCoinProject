@@ -2,6 +2,7 @@ package wire
 
 import (
 	"BtcoinProject/chaincfg/chainhash"
+	"io"
 	"time"
 )
 
@@ -26,4 +27,13 @@ type BlockHeader struct {
 
 	// Nonce used to generate the block.
 	Nonce     uint32
+}
+
+
+// readBlockHeader reads a bitcoin block header from r.  See Deserialize for
+// decoding block headers stored to disk, such as in a database, as opposed to
+// decoding from the wire.
+func readBlockHeader(r io.Reader, pver uint32, bh *BlockHeader) error {
+	return readElements(r, &bh.Version, &bh.PrevBlock, &bh.MerkleRoot,
+		(*uint32Time)(&bh.Timestamp), &bh.Bits, &bh.Nonce)
 }

@@ -685,7 +685,6 @@ func RandomUint64() (uint64, error) {
 	return randomUint64(rand.Reader)
 }
 
-
 //over
 
 
