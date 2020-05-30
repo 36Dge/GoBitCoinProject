@@ -2,8 +2,11 @@ package wire
 
 import (
 	"BtcoinProject/chaincfg/chainhash"
+	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"io"
+	"math"
 	"time"
 )
 
@@ -444,7 +447,6 @@ func writeElement(w io.Writer, element interface{}) error {
 	// above.
 	return binary.Write(w, littleEndian, element)
 
-
 }
 
 // writeElements writes multiple items to w.  It is equivalent to multiple
@@ -458,5 +460,237 @@ func writeElements(w io.Writer, elements ...interface{}) error {
 	}
 	return nil
 }
+
+//readvarint reads a variable length integer from r and returns it as a uints
+func ReadVarInt(r io.Reader, pver uint32) (uint64, error) {
+	discriminant, err := binarySerializer.Uint8(r)
+	if err != nil {
+		return 0, err
+	}
+	var rv uint64
+	switch discriminant {
+	case 0xff:
+		sv, err := binarySerializer.Uint64(r, littleEndian)
+		if err != nil {
+			return 0, err
+		}
+		rv = sv
+
+		//the encoding is not canonical the value could have been encoded using
+		//fewer bytes
+
+		min := uint64(0x100000000)
+		if rv < min {
+			return 0, messageError("ReadVarInt", fmt.Sprintf(
+				errNonCanonicalVarInt, rv, discriminant, min))
+		}
+
+	case 0xfe:
+		sv, err := binarySerializer.Uint32(r, littleEndian)
+		if err != nil {
+			return 0, err
+		}
+		rv = uint64(sv)
+
+		// The encoding is not canonical if the value could have been
+		// encoded using fewer bytes.
+
+		min := uint64(0x10000)
+		if rv < min {
+			return 0, messageError("ReadVarInt", fmt.Sprintf(
+				errNonCanonicalVarInt, rv, discriminant, min))
+		}
+
+	case 0xfd:
+		sv, err := binarySerializer.Uint16(r, littleEndian)
+		if err != nil {
+			return 0, err
+		}
+		rv = uint64(sv)
+
+		// The encoding is not canonical if the value could have been
+		// encoded using fewer bytes.
+		min := uint64(0xfd)
+		if rv < min {
+			return 0, messageError("ReadVarInt ", fmt.Sprintf(
+				errNonCanonicalVarInt, rv, discriminant, min))
+		}
+
+	default:
+		rv = uint64(discriminant)
+
+	}
+	return rv, nil
+
+}
+
+//writeVarInt serializes val to w using a varialbe number of bytes depending
+//on its value
+func WriteVarInt(w io.Writer, pver uint32, val uint64) error {
+	if val < 0xfd {
+		return binarySerializer.PutUint8(w, uint8(val))
+	}
+
+	if val <= math.MaxUint16 {
+		err := binarySerializer.PutUint8(w, 0xfd)
+		if err != nil {
+			return err
+		}
+		return binarySerializer.PutUint16(w, littleEndian, uint16(val))
+	}
+
+	if val <= math.MaxUint32 {
+		err := binarySerializer.PutUint8(w, 0xfe)
+		if err != nil {
+			return err
+		}
+
+		return binarySerializer.PutUint32(w, littleEndian, uint32(val))
+
+	}
+
+	err := binarySerializer.PutUint8(w, 0xff)
+	if err != nil {
+		return err
+	}
+	return binarySerializer.PutUint64(w, littleEndian, val)
+}
+
+//varintserializesize returns the number of bytes it would take to serialized
+//val as a variable length integer.
+func VarIntSerializeSize(val uint64) int {
+	// the value is small enoungh to be represented by itself .so it is
+	//just 1 byte
+	if val < 0xfd {
+		return 1
+	}
+
+	//discriminant 1 byte plus 2 bytes for the uint16
+	if val <= math.MaxUint16 {
+		return 3
+	}
+
+	//discriminant 1 bytes plus 4 bytes for the uint32
+	if val <= math.MaxUint32 {
+		return 5
+	}
+
+	// Discriminant 1 byte plus 8 bytes for the uint64.
+	return 9
+
+}
+
+// ReadVarString reads a variable length string from r and returns it as a Go
+// string.  A variable length string is encoded as a variable length integer
+// containing the length of the string followed by the bytes that represent the
+// string itself.  An error is returned if the length is greater than the
+// maximum block payload size since it helps protect against memory exhaustion
+// attacks and forced panics through malformed messages.
+func ReadVarString(r io.Reader, pver uint32) (string, error) {
+	count, err := ReadVarInt(r, pver)
+	if err != nil {
+		return "", err
+	}
+	//prevent variable length strings that are larger than the maximum message
+	//size. it would be possible to cause memory exhaustion and panics without
+	//a sane upper bound on this count
+	if count > MaxMessagePayload {
+		str := fmt.Sprintf("variable length string is too long "+
+			"[count%d ,max %d ", count, MaxMessagePayload)
+		return "", messageError("ReadVarString", str)
+	}
+
+	buf := make([]byte, count)
+	_, err = io.ReadFull(r, buf)
+	if err != nil {
+		return "", err
+	}
+
+	return string(buf), nil
+
+}
+
+// WriteVarString serializes str to w as a variable length integer containing
+// the length of the string followed by the bytes that represent the string
+// itself.
+
+func WriteVarString(w io.Writer, pver uint32, str string) error {
+	err := WriteVarInt(w, pver, uint64(len(str)))
+	if err != nil {
+		return err
+	}
+	_, err = w.Write([]byte(str))
+	return err
+
+}
+
+// ReadVarBytes reads a variable length byte array.  A byte array is encoded
+// as a varInt containing the length of the array followed by the bytes
+// themselves.  An error is returned if the length is greater than the
+// passed maxAllowed parameter which helps protect against memory exhaustion
+// attacks and forced panics through malformed messages.  The fieldName
+// parameter is only used for the error message so it provides more context in
+// the error.
+
+func ReadVarBytes(r io.Reader, pver uint32, maxAllowed uint32, fieldName string) ([]byte, error) {
+	count, err := ReadVarInt(r, pver)
+	if err != nil {
+		return nil, err
+	}
+
+	// Prevent byte array larger than the max message size.  It would
+	// be possible to cause memory exhaustion and panics without a sane
+	// upper bound on this count.
+	if count > uint64(maxAllowed) {
+		str := fmt.Sprintf("%s is larger than the max allowed size "+
+			"[count %d, max %d]", fieldName, count, maxAllowed)
+		return nil, messageError("ReadVarBytes", str)
+	}
+
+	b := make([]byte, count)
+	_, err = io.ReadFull(r, b)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+
+}
+
+//writevarBytes serializes a variable  length byte array to w as a varInt
+//containing the number of bytes ,followed by the bytes themselves
+func WriteVarBytes(w io.Writer, pver uint32, bytes []byte) error {
+	slen := uint64(len(bytes))
+	err := WriteVarInt(w, pver, slen)
+	if err != nil {
+		return err
+	}
+
+	_, err = w.Write(bytes)
+	return err
+}
+
+// randomUint64 returns a cryptographically random uint64 value.  This
+// unexported version takes a reader primarily to ensure the error paths
+// can be properly tested by passing a fake reader in the tests.
+func randomUint64(r io.Reader) (uint64, error) {
+	rv, err := binarySerializer.Uint64(r, bigEndian)
+	if err != nil {
+		return 0, err
+	}
+	return rv, nil
+}
+
+// RandomUint64 returns a cryptographically random uint64 value.
+func RandomUint64() (uint64, error) {
+	return randomUint64(rand.Reader)
+}
+
+
+//over
+
+
+
+
+
 
 
