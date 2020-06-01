@@ -136,5 +136,5 @@ func ErrToRejectErr(err error) (wire.RejectCode, string) {
 }
 
 
-// 这个页面完结
+// over
 
