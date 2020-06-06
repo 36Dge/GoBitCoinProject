@@ -371,4 +371,81 @@ func (mp *TxPool) removeOrphanDoubleSpends(tx *btcutil.Tx) {
 	}
 }
 
+//is transactioninpool returns whether or not passed transaction already
+//exist in the mian pool.
+
+//this function must be called with the mempool lock held (for reads)
+func (mp *TxPool) isTransactionInPool(hash *chainhash.Hash) bool {
+	if _, exists := mp.pool[*hash]; exists {
+		return true
+	}
+	return false
+}
+
+//istransactioninpool returns whether or not the passed transaction already
+// exists in the main pool.
+//
+// This function is safe for concurrent access.
+func (mp *TxPool) IsTransactionInPool(hash *chainhash.Hash) bool {
+
+	//protect concurrent access
+	mp.mtx.RLock()
+	inPool := mp.isTransactionInPool(hash)
+	mp.mtx.RUnlock()
+	return inPool
+
+}
+
+//isorphaninpool returns whether or not the passed transaction already e
+//in the orphan pool
+//this function must be called with the mempool lock held (for reads)
+func (mp *TxPool) isOrphanInPool(hash *chainhash.Hash) bool {
+	if _, exists := mp.orphans[*hash]; exists {
+		return true
+	}
+	return false
+}
+
+// IsOrphanInPool returns whether or not the passed transaction already exists
+// in the orphan pool.
+//
+// This function is safe for concurrent access.
+
+func (mp *TxPool) IsOrphanInPool(hash *chainhash.Hash) bool {
+	//protect concurrent access
+	mp.mtx.RLock()
+	inPool := mp.isOrphanInPool(hash)
+	mp.mtx.RUnlock()
+	return inPool
+}
+
+//havetransaction returns whether or not the passed transaction already
+//exists in the main pool or in the orphan pool.
+//this function must be called with the mempool lock held(for reads)
+func (mp *TxPool) haveTransaction(hash *chainhash.Hash) bool {
+	//protect concurent access
+	mp.mtx.RLock()
+	haveTx := mp.haveTransaction(hash)
+	mp.mtx.RUnlock()
+
+	return haveTx
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
