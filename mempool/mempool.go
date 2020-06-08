@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcutil"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -160,7 +161,7 @@ type orphanTx struct {
 //and relayed to others peers .it is safe for concurent access form multipile peers
 type TxPool struct {
 	//the following variable must only be used atomically.
-	lsatUpdate    int64 //last time pool was updated
+	lastUpdated   int64 //last time pool was updated
 	mtx           sync.RWMutex
 	cfg           Config
 	pool          map[chainhash.Hash]*TxDesc
@@ -431,21 +432,247 @@ func (mp *TxPool) haveTransaction(hash *chainhash.Hash) bool {
 	return haveTx
 }
 
+//remove transaction is the internal fucnction which implements the public
+//removetransaction. see the comment for removetransaction for more details
 
+//this functions must be called with the mempool lock held (for writes)
+func (mp *TxPool) removeTransaction(tx *btcutil.Tx, removeRedeemers bool) {
+	txHash := tx.Hash()
+	if removeRedeemers {
+		//remove any transaction which relay on this one
+		for i := uint32(0); i < uint32(len(tx.MsgTx().TxOut)); i++ {
+			prevOut := wire.OutPoint{Hash: *txHash, Index: i}
+			if txRedeemer, exists := mp.outpoints[prevOut]; exists {
+				mp.removeTransaction(txRedeemer, true)
+			}
+		}
 
+	}
 
+	//remove the transaction if needed
 
+	if txDesc, exists := mp.pool[*txHash]; exists {
+		//remove unconfirmed address index entries accsciated with the transaction
+		//if enabled.
+		if mp.cfg.AddrIndex != nil {
+			mp.cfg.AddrIndex.RemoveUnconfirmedTx(txHash)
+		}
 
+		//mark the referenced outpoints as unspent by the pool.
+		for _, txIn := range txDesc.Tx.MsgTx().TxIn {
+			delete(mp.outpoints, txIn.PreviousOutPoint)
+		}
+		delete(mp.pool, *txHash)
+		atomic.StoreInt64(&mp.lastUpdated, time.Now().Unix())
 
+	}
 
+}
 
+// RemoveTransaction removes the passed transaction from the mempool. When the
+// removeRedeemers flag is set, any transactions that redeem outputs from the
+// removed transaction will also be removed recursively from the mempool, as
+// they would otherwise become orphans.
+//
+// This function is safe for concurrent access.
+func (mp *TxPool) RemoveTransaction(tx *btcutil.Tx, removeRedeemers bool) {
+	// Protect concurrent access.
+	mp.mtx.Lock()
+	mp.removeTransaction(tx, removeRedeemers)
+	mp.mtx.Unlock()
+}
 
+//removedoubleseends removes all transactions which outputs spent by
+//the passed transactoin from the mempool .removging those transaction
+//then leads to removing all transaction which relay on them .recursively.
+//this is necessary when a block is connected to the main chain beacuse
+//the blcok may contain transaction which were priviously unknown to
+//the memory pool
+//this function is safe for concurrent access
+func (mp *TxPool) RemoveBoubleSpends(tx *btcutil.Tx) {
+	//protect concurent access
+	mp.mtx.Lock()
+	for _, txIn := range tx.MsgTx().TxIn {
 
+		if txRedeemer, ok := mp.outpoints[txIn.PreviousOutPoint]; ok {
+			if !txRedeemer.Hash().IsEqual(tx.Hash()) {
+				mp.removeTransaction(txRedeemer, true)
+			}
+		}
+	}
+	mp.mtx.Unlock()
+}
 
+//addtransaction adds the passed transaction to the mempory pool.it
+//should not be called directly as it doesn't perform any validation .
+//this is a helper for maybeaccpttransaction
+//this is must be called with the mempool lock held (for writes)
+func (mp *TxPool) addTransaction(utxoView *blockchain.UtxoViewpoint, tx *btcutil.Tx, height int32, fee int64) *TxDesc {
+	//add the transaction to the pool and mark the referenced outputs
+	//as spent by the pool
 
+	txD := &TxDesc{
+		TxDesc: mining.TxDesc{
+			Tx:       tx,
+			Added:    time.Now(),
+			Height:   height,
+			Fee:      fee,
+			FeePerKB: fee * 1000 / GetTxVirtualSize(tx),
+		},
+		StartingPriority: mining.CalcPriority(tx.MsgTx(), utxoView, height),
+	}
 
+	mp.pool[*tx.Hash()] = txD
+	for _, txIn := range tx.MsgTx().TxIn {
+		mp.outpoints[txIn.PreviousOutPoint] = tx
+	}
+	atomic.StoreInt64(&mp.lastUpdated, time.Now().Unix())
 
+	//add unconfirmed address index entries associated with the transaction
+	//if enable
+	if mp.cfg.AddrIndex != nil {
+		mp.cfg.AddrIndex.AddUnconfirmedTx(tx, utxoView)
+	}
 
+	//remove this tx for fee estimation if enabled.
+	if mp.cfg.FeeEstimator != nil {
+		mp.cfg.FeeEstimator.ObserveTransaction(txD)
+	}
+
+	return txD
+
+}
+
+// checkPoolDoubleSpend checks whether or not the passed transaction is
+// attempting to spend coins already spent by other transactions in the pool.
+// If it does, we'll check whether each of those transactions are signaling for
+// replacement. If just one of them isn't, an error is returned. Otherwise, a
+// boolean is returned signaling that the transaction is a replacement. Note it
+// does not check for double spends against transactions already in the main
+// chain.
+//this function must be called with the mempool lock held (for reads)
+func (mp *TxPool) checkPoolDoubleSpend(tx *btcutil.Tx) (bool, error) {
+	var isReplacement bool
+	for _, txIn := range tx.MsgTx().TxIn {
+		conflict, ok := mp.outpoints[txIn.PreviousOutPoint]
+		if !ok {
+			continue
+		}
+
+		//reject the transaction if we do not accept replacement
+		//transaction or if it does not signal replacement
+		// Reject the transaction if we don't accept replacement
+		// transactions or if it doesn't signal replacement.
+		if mp.cfg.Policy.RejectReplacement ||
+			!mp.signalsReplacement(conflict, nil) {
+			str := fmt.Sprintf("output %v already spent by "+
+				"transaction %v in the memory pool",
+				txIn.PreviousOutPoint, conflict.Hash())
+			return false, txRuleError(wire.RejectDuplicate, str)
+		}
+		isReplacement = true
+	}
+
+	return isReplacement, nil
+}
+
+// signalsReplacement determines if a transaction is signaling that it can be
+// replaced using the Replace-By-Fee (RBF) policy. This policy specifies two
+// ways a transaction can signal that it is replaceable:
+//
+// Explicit signaling: A transaction is considered to have opted in to allowing
+// replacement of itself if any of its inputs have a sequence number less than
+// 0xfffffffe.
+//
+// Inherited signaling: Transactions that don't explicitly signal replaceability
+// are replaceable under this policy for as long as any one of their ancestors
+// signals replaceability and remains unconfirmed.
+//
+// The cache is optional and serves as an optimization to avoid visiting
+// transactions we've already determined don't signal replacement.
+//
+// This function MUST be called with the mempool lock held (for reads).
+
+func (mp *TxPool) signalsReplacement(tx *btcutil.Tx, cache map[chainhash.Hash]struct{}) bool {
+	//if a cache was not provided ,we will intialize one now to ust
+	//for the recursive calls.
+	if cache == nil {
+		cache = make(map[chainhash.Hash]struct{})
+	}
+
+	for _, txIn := range tx.MsgTx().TxIn {
+		if txIn.Sequence <= MaxRBFSequence {
+			return true
+		}
+
+		hash := txIn.PreviousOutPoint.Hash
+		unconfirmedAncestor, ok := mp.pool[hash]
+		if !ok {
+			continue
+		}
+
+		// If we've already determined the transaction doesn't signal
+		// replacement, we can avoid visiting it again.
+		if _, ok := cache[hash]; ok {
+			continue
+		}
+
+		if mp.signalsReplacement(unconfirmedAncestor.Tx, cache) {
+			return true
+		}
+
+		// Since the transaction doesn't signal replacement, we'll cache
+		// its result to ensure we don't attempt to determine so again.
+		cache[hash] = struct{}{}
+
+	}
+
+	return false
+
+}
+
+//txancestors returns all of the unconfimed anastors of given
+//transaction.given transaction a,b, and where c spneds b and
+// B spends A,
+// A and B are considered ancestors of C.
+
+//the cache is optional and serves as an optimization to avoid visting
+//transaction we have already determined ancestors of .
+
+//this function must be called with the mempool lock held (for reads)
+func (mp *TxPool) txAncestors(tx *btcutil.Tx, cache map[chainhash.Hash]map[chainhash.Hash]*btcutil.Tx) map[chainhash.Hash]*btcutil.Tx {
+	//if a cache was not provided,we will initialize one now to use for
+	//the recursive calls
+	if cache == nil {
+		cache = make(map[chainhash.Hash]map[chainhash.Hash]*btcutil.Tx)
+	}
+
+	ancestors := make(map[chainhash.Hash]*btcutil.Tx)
+	for _, txIn := range tx.MsgTx().TxIn {
+
+		parent, ok := mp.pool[txIn.PreviousOutPoint.Hash]
+		if !ok {
+			continue
+		}
+		ancestors[*parent.Tx.Hash()] = parent.Tx
+
+		//determine if the ancestors of this ancestor have already been
+		//computed.if they haven.t ,we will do so now and cache them to use
+		//them later on if necessay
+		moreAncestors, ok := cache[*parent.Tx.Hash()]
+		if !ok {
+			moreAncestors = mp.txAncestors(parent.Tx, cache)
+			cache[*parent.Tx.Hash()] = moreAncestors
+		}
+
+		for hash, ancestor := range moreAncestors {
+			ancestors[hash] = ancestor
+
+		}
+	}
+
+	return ancestors
+}
 
 
 
