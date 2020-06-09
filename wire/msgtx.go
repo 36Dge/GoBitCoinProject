@@ -9,6 +9,23 @@ type OutPoint struct {
 	Index uint32
 }
 
+
+// TxIn defines a bitcoin transaction input.
+type TxIn struct {
+	PreviousOutPoint OutPoint
+	SignatureScript  []byte
+	Witness          TxWitness
+	Sequence         uint32
+}
+
+
+//TxOut defines a bitcoin transaction output.
+type TxOut struct {
+	Value    int64
+	PKScript []byte
+}
+
+
 // Msgtx implements the message interface and represents a bitcoin
 // tx message.it is used to deliver transaction information in response
 // to a getdata message(msggetdata) for a given transaction .
@@ -20,20 +37,6 @@ type MsgTx struct {
 	TxIn     []*TxIn
 	TxOut    []*TxOut
 	LockTime uint32
-}
-
-// TxIn define a bitcoin transaction input.
-type TxIn struct {
-	PreviousOutPoint OutPoint
-	SignatureScript  []byte
-	Witness          TxWitness
-	Sequence         uint32
-}
-
-//TxOut defines a bitcoin transaction output.
-type TxOut struct {
-	Value    int64
-	PKScript []byte
 }
 
 // TxWitness defines the witness for a TxIn. A witness is to be interpreted as

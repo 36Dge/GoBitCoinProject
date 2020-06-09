@@ -674,5 +674,93 @@ func (mp *TxPool) txAncestors(tx *btcutil.Tx, cache map[chainhash.Hash]map[chain
 	return ancestors
 }
 
+// txDescendants returns all of the unconfirmed descendants of the given
+// transaction. Given transactions A, B, and C where C spends B and B spends A,
+// B and C are considered descendants of A. A cache can be provided in order to
+// easily retrieve the descendants of transactions we've already determined the
+// descendants of.
+//
+// This function MUST be called with the mempool lock held (for reads).
+func (mp *TxPool) txDescendants(tx *btcutil.Tx, cache map[chainhash.Hash]map[chainhash.Hash]*btcutil.Tx) map[chainhash.Hash]*btcutil.Tx {
+	// if a cache was not provided,we will initialize one to use for the
+	//recursive calls .
+	if cache == nil {
+		cache = make(map[chainhash.Hash]map[chainhash.Hash]*btcutil.Tx)
+	}
+
+	//we will go throught all of the outputs of the transaction to determine
+	//if they are spent by any other mempool transactions.
+
+	descendants := make(map[chainhash.Hash]*btcutil.Tx)
+	op := wire.OutPoint{Hash: *tx.Hash()}
+	for i := range tx.MsgTx().TxOut {
+		op.Index = uint32(i)
+		descendant, ok := mp.outpoints[op]
+		if !ok {
+			continue
+		}
+		descendants[*descendant.Hash()] = descendant
+
+		//determine if the descendants of this descendant have already
+		//been computed. if they have not ,we will do so now and cache
+		//them to use them later on if necessary .
+		moreDescendants, ok := cache[*descendant.Hash()]
+		if !ok {
+			moreDescendants = mp.txDescendants(descendant, cache)
+			cache[*descendant.Hash()] = moreDescendants
+
+		}
+
+		for _, moreDescendant := range moreDescendants {
+			descendants[*moreDescendant.Hash()] = moreDescendant
+		}
+
+	}
+	return descendants
+}
+
+//txconficts returns all of the unconfirmed transaction that would become
+//conflicts if we were to accept the given transaction into the mempool .an
+//unconfirmed confiict is known as a transaction that spends an output already
+//spent by a different transacion within the mempool.any descendants of the
+//these transactions are also considered conflicts as they would no longer exists
+//these are generally not allowed except for transactions that singal RBF support.
+func (mp *TxPool) txConflicts(tx *btcutil.Tx) map[chainhash.Hash]*btcutil.Tx {
+	conflicts := make(map[chainhash.Hash]*btcutil.Tx)
+	for _, txIn := range tx.MsgTx().TxIn {
+		conflict, ok := mp.outpoints[txIn.PreviousOutPoint]
+		if !ok {
+			continue
+		}
+
+		conflicts[*conflict.Hash()] = conflict
+		for hash, descendant := range mp.txDescendants(conflict, nil) {
+			conflicts[hash] = descendant
+		}
+
+	}
+	return conflicts
+}
+
+//checkspend checks whether the passed outpoint is already spent by a transaction in
+//the mempool.if that is the case the spending transaction will be retuened .
+//if not nil will be retruned.
+func (mp *TxPool)CheckSpend(op wire.OutPoint)*btcutil.Tx{
+	mp.mtx.RLock()
+	txR := mp.outpoints[op]
+	mp.mtx.RUnlock()
+
+	return txR
+}
+
+//fetchinputUtxos loads details about the inut transactions referenced
+//by the passed transaction first it loads the details form the viewpoint
+//of the main chain.then it adjusts them based upon the contents of the
+//
+//this function MUST be called the mempool lock held (for reads.)
+
+
+
+
 
 
