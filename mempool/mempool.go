@@ -745,7 +745,7 @@ func (mp *TxPool) txConflicts(tx *btcutil.Tx) map[chainhash.Hash]*btcutil.Tx {
 //checkspend checks whether the passed outpoint is already spent by a transaction in
 //the mempool.if that is the case the spending transaction will be retuened .
 //if not nil will be retruned.
-func (mp *TxPool)CheckSpend(op wire.OutPoint)*btcutil.Tx{
+func (mp *TxPool) CheckSpend(op wire.OutPoint) *btcutil.Tx {
 	mp.mtx.RLock()
 	txR := mp.outpoints[op]
 	mp.mtx.RUnlock()
@@ -758,6 +758,46 @@ func (mp *TxPool)CheckSpend(op wire.OutPoint)*btcutil.Tx{
 //of the main chain.then it adjusts them based upon the contents of the
 //
 //this function MUST be called the mempool lock held (for reads.)
+func (mp *TxPool) fetchInputUtxos(tx *btcutil.Tx) (*blockchain.UtxoViewpoint, error) {
+	utxoView, err := mp.cfg.FetchUtxoView(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	//attempt to populate any missing inputs from the transaction pool
+	for _, txIn := range tx.MsgTx().TxIn {
+		prevOut := &txIn.PreviousOutPoint
+		entry := utxoView.LookupEntry(*prevOut)
+		if entry != nil && !entry.isSpent() {
+			continue
+		}
+
+		if poolTxDesc, exists := mp.pool[prevOut.Hash]; exists {
+			//addtxout ignores out of range index values ,so it is
+			//safe to call without bounds checking here.
+			utxoView.AddTxOut(poolTxDesc.Tx, prevOut.Index, mining.UnminedHeight)
+		}
+
+	}
+	return utxoView, nil
+}
+
+//fetchtransaction returns the requested transaction from the tranasaction
+//pool .this is only fetchs from the main transaction pool and does not
+//include orphans.
+//this function is safe for concurrent access
+func (mp *TxPool)FetchTransaction(txHash *chainhash.Hash) (*btcutil.Tx,error){
+	//protect concurrent access
+	mp.mtx.RLock()
+	txDesc,exists := mp.pool[*txHash]
+	mp.mtx.RUnlock()
+	if exists{
+		return txDesc.Tx,nil
+	}
+	return nil,fmt.Errorf("transaction is not in the pool")
+}
+
+
 
 
 

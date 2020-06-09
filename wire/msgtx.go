@@ -1,6 +1,8 @@
 package wire
 
-import "BtcoinProject/chaincfg/chainhash"
+import (
+	"BtcoinProject/chaincfg/chainhash"
+)
 
 //OutPoint defines a bitcoin data type that is used to track previsou
 //transaction outputs
@@ -8,7 +10,6 @@ type OutPoint struct {
 	Hash  chainhash.Hash
 	Index uint32
 }
-
 
 // TxIn defines a bitcoin transaction input.
 type TxIn struct {
@@ -18,13 +19,11 @@ type TxIn struct {
 	Sequence         uint32
 }
 
-
 //TxOut defines a bitcoin transaction output.
 type TxOut struct {
 	Value    int64
 	PKScript []byte
 }
-
 
 // Msgtx implements the message interface and represents a bitcoin
 // tx message.it is used to deliver transaction information in response
