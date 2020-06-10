@@ -786,21 +786,111 @@ func (mp *TxPool) fetchInputUtxos(tx *btcutil.Tx) (*blockchain.UtxoViewpoint, er
 //pool .this is only fetchs from the main transaction pool and does not
 //include orphans.
 //this function is safe for concurrent access
-func (mp *TxPool)FetchTransaction(txHash *chainhash.Hash) (*btcutil.Tx,error){
+func (mp *TxPool) FetchTransaction(txHash *chainhash.Hash) (*btcutil.Tx, error) {
 	//protect concurrent access
 	mp.mtx.RLock()
-	txDesc,exists := mp.pool[*txHash]
+	txDesc, exists := mp.pool[*txHash]
 	mp.mtx.RUnlock()
-	if exists{
-		return txDesc.Tx,nil
+	if exists {
+		return txDesc.Tx, nil
 	}
-	return nil,fmt.Errorf("transaction is not in the pool")
+	return nil, fmt.Errorf("transaction is not in the pool")
+}
+
+//validatereplacement determines wherther a transaction is deemed as a valid
+//replacement of all its conflicts according to the rbf policy .if it is valid
+//no error is returned.otherwise an error is returned indicating what went wrong.
+
+//this function must be called with the mempool lock held (for read)
+func (mp *TxPool) validateReplacement(tx *btcutil.Tx, txFee int64) (map[chainhash.Hash]*btcutil.Tx, error) {
+
+	//first ,we will make sure the set of conflicting transaction doesn,t
+	//exceed the maximum allowed
+	conflicts := map.txConflicts(tx)
+	if len(conflicts) > MaxReplacementEvictions {
+		str := fmt.Sprintf("replacement transaction %v evicts more "+"transacations than permitted :max is %v ,evitss %v ",
+			tx.Hash(), MaxReplacementEvictions, len(conflicts))
+		return nil, txRuleError(wire.RejectNonstandard, str)
+	}
+
+	//the set of confilicts (transactions we will replace )and anscestors should not
+	//overlap ,otherwise the replacement would be spending an output that no longer exists.
+	for ancestorHash := range mp.txDescendants(tx, nil) {
+		if _, ok := conflicts[ancestorHash]; !ok {
+			continue
+		}
+		str := fmt.Sprintf("replacement transaction %v spends parent "+
+			"transaction %v ", tx.Hash(), ancestorHash)
+		return nil, txRuleError(wire.RejectInvalid, str)
+	}
+
+	//the replacemnt should have a higher fee rate than each of the
+	//conflicting transactions and a higher absolute fee than the fee
+	//sum of all the conflicting transactions.
+
+	//we usually don,t want to accept replacement with lower fee rates
+	//than what they replaced as that would lower the fee rate of the next
+	//block.requring that the fee rate always be increeaed is also an easy-to-reason
+	//about way to prevent dos attacks via replacements.
+	var (
+		txSize           = GetTxVirtualSize(tx)
+		txFeeRate        = txFee * 1000 / txSize
+		conflictsFee     int64
+		conflictsParents = make(map[chainhash.Hash]struct{})
+	)
+	for hash, conflicts = range conflicts {
+		if txFeeRate <= mp.pool[hash].FeePerKB {
+			str := fmt.Sprintf("replacement transaction %v has an "+
+				"insufficient fee rate : needs more than %v "+
+				"has %v ", tx.Hash(), mp.pool[hash].FeePerKB, txFeeRate)
+			return nil, txRuleError(wire.RejectInsufficientFee, str)
+		}
+
+		conflictsFee += mp.pool[hash].Fee
+
+		//we wll track each conflict,s parents to ensure the replacement
+		//is not spending any new unconfirmed inputs
+		for _, txIn := range conflicts.MsgTx().TxIn {
+			conflictsParents[txIn.PreviousOutPoint.Hash] = struct{}{}
+		}
+
+	}
+
+	//it should also have an absoulte fee greater than all of the transaction
+	//it intends to repalce and pay for its own bnadwidth.
+	//which is determined by our minimum relay fee.
+	minFee := calcMinRequiredTxRelayFee(txSize, mp.cfg.Policy.MinRelayTxFee)
+	if txFee < conflictsFee+minFee {
+		str := fmt.Sprintf("replacement transaction %v has an "+
+			"insufficient absolute fee :nees %v ,has %v ",
+			tx.Hash(), conflictsFee+minFee, txFee)
+		return nil, txRuleError(wire.RejectInsufficientFee, str)
+	}
+
+	// finanlly ,it should not spend any new unconfirmed outputs ,other than
+	//the ones already inculuded in the parents of the conflicting transaction
+	//it will replace
+	for _, txIn := range tx.MsgTx().TxIn {
+		if _, ok := conflictsParents[txIn.PreviousOutPoint.Hash]; ok {
+			continue
+		}
+
+		//confirmed outpus are valid to spend in the replacement .
+
+		if _, ok := mp.pool[txIn.PreviousOutPoint.Hash]; !ok {
+			continue
+		}
+		str := fmt.Sprintf("replacement transaction spends new"+
+			"uncomfirmed input %v not found in conflicting "+
+			"transactions,", txin.PreviousOutPoint)
+		return nil, txRuleError(wire.RejectInvalid, str)
+
+	}
+	return conflicts, nil
+
 }
 
 
-
-
-
-
-
-
+// maybeaccepttransaction is the internal function which implements the public
+//maybeaccepttransaction. see the comment for mayaccepttranascion for more details
+//this function MUST be called with the mempool lock held (for writes).
