@@ -890,7 +890,130 @@ func (mp *TxPool) validateReplacement(tx *btcutil.Tx, txFee int64) (map[chainhas
 
 }
 
-
 // maybeaccepttransaction is the internal function which implements the public
 //maybeaccepttransaction. see the comment for mayaccepttranascion for more details
 //this function MUST be called with the mempool lock held (for writes).
+
+func (mp *TxPool) maybeAcceptTransaction(tx *btcutil.Tx, isNew, rateLimit, rejectDupOrphans bool) ([]chainhash.Hash, *TxDesc, error) {
+
+	txHash := tx.Hash()
+
+	//if a transaction has witness data ,and segwit isn,t active yet.if segwit isn,t active yet.
+	//then we won,t accept it into the mempool as
+	//it can,t be mined yet.
+	if tx.MsgTx().HasWitness() {
+		segwitActive, err := mp.cfg.IsDeploymentActive(chaincfg.DeploymentSegwit)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if !segwitActive {
+
+			str := fmt.Sprintf("transaction %v has witness data ,"+
+				"but segwit is not active yet ", txHash)
+			return nil, nil, txRuleError(wire.RejectNonstandard, str)
+		}
+	}
+
+	//don't accept the transaction if it already exists in the pool .this
+	//applies to orphan transactions as well when the project duplicate
+	//orphans flag is set .this check is intended to be q quick to weed out
+	//duplicates
+	if mp.isTransactionInPool(txHash) || (rejectDupOrphans && mp.isOrphanInPool(txHash)) {
+		str := fmt.Sprintf("already have transaction %v ", txHash)
+		return nil, nil, txRuleError(wire.RejectDuplicate, str)
+	}
+
+	//perform preliminary sanity checks on the transaction. this makes
+	//use of blockchain which contains the invariant rules for what transaction
+	//are allowed into blocks .
+	err := blockchain.CheckTransactionSanity(tx)
+	if err != nil {
+		if cerr, ok := err.(blockchain.RuleError); ok {
+			return nil, nil, chainRuleError(cerr)
+		}
+		return nil, nil, err
+	}
+
+	//a standlone transaction must not be coinbase transaction
+	if blockchain.IsCoinBase(tx) {
+		str := fmt.Sprintf("transaction %v is an indivinal coinbase ",
+			txHash)
+		return nil, nil, txRuleError(wire.RejectInvalid, str)
+	}
+
+	//get the current height of the main chain.a standalone transaction
+	//will be mined into the next block at best ,so its height is at least
+	//one more than the current height.
+	bestHeight := mp.cfg.BestHeight()
+	nextBlockHeight := bestHeight + 1
+
+	medianTimePast := mp.cfg.MedianTimePast()
+
+	//don't allow non-standard transaction if the network parameters
+	//forbid their acceptance.
+	if !mp.cfg.Policy.AcceptNonStd {
+		err = checkTransactionStandard(tx, nextBlockHeight, medianTimePast, mp.cfg.Policy.MinRelayTxFee, mp.cfg.Policy.MaxTxVersion)
+	}
+
+	if err != nil {
+		//attempt to extract a reject code from the error so it can be retained.
+		//when not possible ,fall back to a non strandard error.
+		rejectCode, found := extractRejectCode(err)
+		if !found {
+			rejectCode = wire.RejectNonstandard
+		}
+		str := fmt.Sprintf("transaction %v is not standard :%v", txHash, err)
+		return nil, nil, txRuleError(rejectCode, str)
+	}
+
+	//the transaction may not use any of the same outputs as other
+	//transactions already in the pool as that would ultimately result
+	//in a doube spend .unless those transactions signal for RBf,this
+	//check is intended to be quick and therefore only detects double spends within
+	// the transaction pool itself. The transaction could still be double
+	// spending coins from the main chain at this point. There is a more
+	// in-depth check that happens later after fetching the referenced
+	// transaction inputs from the main chain which examines the actual
+	// spend data and prevents double spends.
+
+	isReplacement, err := mp.checkPoolDoubleSpend(tx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	//fetch all of the unspent transaction outpouts referenced by the
+	//inputs to this transaction this function also attempts to fetch
+	//the transacton iteself to be used for detecting a duplcate transaction
+	//without needing to to a seprate lookup.
+
+	utxoView, err := mp.fetchInputUtxos(tx)
+	if err != nil {
+		if cerr, ok := err.(blockchain.RuleError); ok {
+			return nil, nil, chainRuleError(cerr)
+		}
+		return nil, nil, err
+	}
+
+	// do not allow the transaction if it exits in the main chain and is not
+	//not already fully spent.
+
+	prevOut := wire.OutPoint{Hash: *txHash}
+	for txOutIdx := range tx.MsgTx().TxOut {
+		prevOut.Index = uint32(txOutIdx)
+		entry := utxoView.LookupEntry(prevOut)
+		if entry != nil && entry.IsSpent() {
+			return nil, nil, txRuleError(wire.RejectDuplicate, "transaction already exists")
+		}
+		utxoView.RemoveEntry(prevOut)
+	}
+
+
+
+
+
+
+
+
+
+}
