@@ -52,3 +52,15 @@ func (view *UtxoViewpoint) LookupEntry(outpoint wire.OutPoint) *UtxoEntry {
 	return view.entries[outpoint]
 }
 
+
+// RemoveEntry removes the given transaction output from the current state of
+// the view.  It will have no effect if the passed output does not exist in the
+// view.
+func (view *UtxoViewpoint) RemoveEntry(outpoint wire.OutPoint) {
+	delete(view.entries, outpoint)
+}
+
+// Entries returns the underlying map that stores of all the utxo entries.
+func (view *UtxoViewpoint) Entries() map[wire.OutPoint]*UtxoEntry {
+	return view.entries
+}
