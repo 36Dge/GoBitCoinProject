@@ -2,6 +2,7 @@ package mempool
 
 import (
 	"BtcoinProject/blockchain"
+	"BtcoinProject/btcjson"
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/mining"
@@ -808,7 +809,7 @@ func (mp *TxPool) validateReplacement(tx *btcutil.Tx, txFee int64) (map[chainhas
 
 	//first ,we will make sure the set of conflicting transaction doesn,t
 	//exceed the maximum allowed
-	conflicts := map.txConflicts(tx)
+	conflicts := mp.txConflicts(tx)
 	if len(conflicts) > MaxReplacementEvictions {
 		str := fmt.Sprintf("replacement transaction %v evicts more "+"transacations than permitted :max is %v ,evitss %v ",
 			tx.Hash(), MaxReplacementEvictions, len(conflicts))
@@ -1312,6 +1313,217 @@ func (mp *TxPool) ProcessOrphans(acceptedTx *btcutil.Tx) []*TxDesc {
 
 	return acceptedTxns
 }
+
+//processtranscion is the main workhorse for handling insertion of new
+//free-standing transactions into the memory pool.it includes functionally
+//such as rejecting dupliacte transactions,ensuring transactions follow all
+//rules,orphan trnasaction handling,and insertion into the memeory pool.
+
+//it returns a slice of transactions added to the mempool.when the erros
+//is nil,the list will inculude the passed transaction iteself along
+//with any additional orphans transactions that were added as a result of
+//the passed one being accepted.
+
+//this function is safe for concurrent access.
+func (mp *TxPool) ProcessTransaction(tx *btcutil.Tx, allowOrphan, rateLimit bool, tag Tag) ([]*TxDesc, error) {
+	log.Tracef("Processing transaction %v", tx.Hash())
+
+	//protect concurrent access
+	mp.mtx.Lock()
+	defer mp.mtx.Unlock()
+
+	//potentially accept the transaction to the mempool .
+	missingParents, txD, err := mp.maybeAcceptTransaction(tx, true, rateLimit, true)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(missingParents) == 0 {
+		//accept any orphan transactions that depned on this
+		//transaction (they may no longer be orphans if all inputs
+		//are now availbale)and repeat for those accepted transactions
+		//until there are eno more.
+		newTxs := mp.processOrphans(tx)
+		acceptedTxs := make([]*TxDesc, len(newTxs)+1)
+
+		//add the parent transation first so remote nodes
+		//do not add orphans
+		acceptedTxs[0] = txD
+		copy(acceptedTxs[1:], newTxs)
+
+		return acceptedTxs, nil
+
+	}
+
+	//the transaction is an orphan (has inputs missing).reject
+	//it if the flag to allow orphans is not set.
+	if !allowOrphan {
+		//only use the first missing parent transaction in the error message
+		//
+		//note :rejectduplicate is really not an accurate
+		//reject code here.but it matches the reference
+		//implementation and there is not a better choice due
+		//to the limited number of reject codes.missing
+		//inputs is assumed to mean they are already spent
+		//which is not really always the case.
+		str := fmt.Sprintf("orphan transaction %v references "+
+			"outputs of unkonwn or fully-spent"+
+			"transaction %v", tx.Hash(), missingParents[0])
+		return nil, txRuleError(wire.RejectDuplicate, str)
+
+	}
+
+	//protentially add the orphan transaction to the orphan pool.
+	err = mp.maybeAddOrphan(tx, tag)
+	return nil, err
+
+}
+
+//count returns the number of transaction in the main pool.it does not
+//inculude the orphan pool
+
+//this fucntion is safe for concurrent access
+func (mp *TxPool) Count() int {
+	mp.mtx.RLock()
+	count := len(mp.pool)
+	mp.mtx.RUnlock()
+
+	return count
+}
+
+//txhashed returns a slice of hashes for all of the trnasaction in the mempool
+func (mp *TxPool) TxHashes() []*chainhash.Hash {
+	mp.mtx.RLock()
+	hashes := make([]*chainhash.Hash, len(mp.pool))
+	i := 0
+	for hash := range mp.pool {
+		hashCopy := hash
+		hashes[i] = &hashCopy
+		i++
+	}
+	mp.mtx.RUnlock()
+	return hashes
+}
+
+//txdeses returns a slice of descriptors for all the transactions in the pol
+//the descriptors are to be treated as read only.
+
+func (mp *TxPool) TxDescs() []*TxDesc {
+	mp.mtx.RLock()
+	descs := make([]*TxDesc, len(mp.pool))
+
+	i := 0
+	for _, desc := range mp.pool {
+		descs[i] = desc
+		i++
+	}
+	mp.mtx.RUnlock()
+	return descs
+}
+
+//miningDeScs returns a slice of mining descriptors for all the transactions
+//in the pool
+
+//this is part of the mining .txsource interface implementation and is safe
+//for concurrent access as required by the interface contract.
+func (mp *TxPool) MiningDescs() []*mining.TxDesc {
+	mp.mtx.RLock()
+	descs := make([]*mining.TxDesc, len(mp.pool))
+	i := 0
+	for _, desc := range mp.pool {
+		descs[i] = &desc.TxDesc
+		i++
+	}
+	mp.mtx.RUnlock()
+	return descs
+}
+
+//rawremoveverbose returns all of the entries in the mempool as a fully
+//populated btcjson result
+
+//this function is safe concurrent access.
+func (mp *TxPool) RawMempoolVerbose() map[string]*btcjson.GetRawMempoolVerboseResult {
+
+	mp.mtx.RLock()
+	defer mp.mtx.RUnlock()
+
+	result := make(map[string]*btcjson.GetRawMempoolVerboseResult, len(mp.pool))
+	bestHeight := mp.cfg.BestHeight()
+
+	for _, desc := range mp.pool {
+
+		//calculate the current priority based on the inputs to
+		//the transaction .use zero if one of more of the input
+		//transactions can,t be found for some reason.
+		tx := desc.Tx
+		var currentPriority float64
+		utxos, err := mp.fetchInputUtxos(tx)
+		if err == nil {
+			currentPriority = mining.CalcPriority(tx.MsgTx(), utxos, bestHeight+1)
+		}
+
+		mpd := &btcjson.GetRawMempoolVerboseResult{
+			Size:             int32(tx.MsgTx().SerializeSize()),
+			Vsize:            int32(GetTxVirtualSize(tx)),
+			Weight:           int32(blockchain.GetTransactionWeight(tx)),
+			Fee:              btcutil.Amount(desc.Fee).ToBTC(),
+			Time:             desc.Added.Unix(),
+			Height:           int64(desc.Height),
+			StartingPriority: desc.StartingPriority,
+			CurrentPriority:  currentPriority,
+			Depends:          make([]string, 0),
+		}
+
+		for _, txIn := range tx.MsgTx().TxIn {
+			hash := &txIn.PreviousOutPoint.Hash
+			if mp.haveTransaction(hash) {
+				mpd.Depends = append(mpd.Depends,
+					hash.String())
+			}
+		}
+
+		result[tx.Hash().String()] = mpd
+	}
+	return result
+}
+
+//lastupdated returns the last time a transaction was added to or remove from
+//the main pool.it does not include the orphan pool.
+
+func(mp *TxPool)LastUpdated() time.Time{
+	return time.Unix(atomic.LoadInt64(&mp.lastUpdated),0)
+
+}
+
+//new returns a new memory pool for validating and storing standalone
+//transactions until they are mined into a block.
+func New(cfg *Config)*TxPool{
+	return &TxPool{
+		cfg:            *cfg,
+		pool:           make(map[chainhash.Hash]*TxDesc),
+		orphans:        make(map[chainhash.Hash]*orphanTx),
+		orphansByPrev:  make(map[wire.OutPoint]map[chainhash.Hash]*btcutil.Tx),
+		nextExpireScan: time.Now().Add(orphanExpireScanInterval),
+		outpoints:      make(map[wire.OutPoint]*btcutil.Tx),
+	}
+}
+
+//over
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
