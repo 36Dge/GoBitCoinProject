@@ -2,6 +2,9 @@ package wire
 
 import (
 	"BtcoinProject/chaincfg/chainhash"
+	"bytes"
+	"fmt"
+	"io"
 	"strconv"
 )
 
@@ -292,9 +295,342 @@ func (msg *MsgTx) AddTxOut(to *TxOut) {
 	msg.TxOut = append(msg.TxOut, to)
 }
 
+//txhash generates the hash for the transaction.
+func (msg *MsgTx) TxHash() chainhash.Hash {
+	//encode the transaction and calculate double sha256 on the result.
+	//ignore the error returns since the only way the encode couuld fail
+	//is being out of memory or due to nil pointers .both of which would
+	//cause a run-time panic
+	buf := bytes.NewBuffer(make([]byte, 0, msg.SerializeSizeStripped()))
+	_ = msg.SerializeSizeNoWitness(buf)
+	return chainhash.DoubleHashH(buf.Bytes())
+}
 
+//witnesshash generates the hash of the transaction serialized according to
+//the new witness serialization defined in bip0141 and bip0144 .the final
+//output is used within the segregated witness commitment of all the witnesses
+//within a block.if a transaction has no witness data .then the witness hash.
+//is the same as its txid.
 
+func (msg *MsgTx) WitnessHash() chainhash.Hash {
+	if msg.HasWitness() {
+		buf := bytes.NewBuffer(make([]byte, 0, mgs.SerializeSize()))
+		_ = msg.Serialize(buf)
+		return chainhash.DoubleHashH(buf.Bytes())
+	}
+	return msg.TxHash()
+}
 
+//copy creates a deep copy of a transaction so that the original does not
+//modify when the copy is manipulated.
+func (msg *MsgTx) Copy() *MsgTx {
+	//create new tx and start by copying primitive values and making space
+	//for the transaction inputs and outputs
+	newTx := MsgTx{
+		Version:  msg.Version,
+		TxIn:     make([]*TxIn, 0, len(msg.TxIn)),
+		TxOut:    make([]*TxOut, 0, len(msg.TxOut)),
+		LockTime: msg.LockTime,
+	}
 
+	//deep copy the old txin data
+	for _, oldTxIn := range msg.TxIn {
+		//deep copy the old previous outpoint
+		oldOutPoint := oldTxIn.PreviousOutPoint
+		newOutPoint := OutPoint{}
+		newOutPoint.Hash.SetBytes(oldOutPoint.Hash[:])
+		newOutPoint.Index = oldOutPoint.Index
 
+		//deep copy the old signature script
+		var newScript []byte
+		oldScript := oldTxIn.SignatureScript
+		oldScriptLen := len(oldScript)
+		if oldScriptLen > 0 {
+			newScript = make([]byte, oldScriptLen)
+			copy(newScript, oldScript[:oldScriptLen])
+		}
 
+		//create new txin with the deep copied data
+		newTxIn := TxIn{
+			PreviousOutPoint: newOutPoint,
+			SignatureScript:  newScript,
+			Sequence:         oldTxIn.Sequence,
+		}
+
+		//if the transaction is witnessy.then also copy the
+		//witness .
+		if len(oldTxIn.Witness) != 0 {
+			//deep copy the old witness data.
+			newTxIn.Witness = make([][]byte, len(oldTxIn.Witness))
+		}
+		for i, oldItem := range oldTxIn.Witness {
+			newItem := make([]byte, len(oldItem))
+			copy(newItem, oldItem)
+			newTxIn.Witness[i] = newItem
+
+		}
+
+		//finally ,append this fully copied txin
+		newTx.TxIn = append(newTx.TxIn, &newTxIn)
+
+	}
+
+	//deep copy the old txout data.
+	for _, oldTxOut := range msg.TxOut {
+		//deep copy the old pkscript
+		var newScript []byte
+		oldScript := oldTxOut.PkScript
+		oldScriptLen := len(oldScript)
+		if oldScriptLen > 0 {
+			newScript = make([]byte, oldScriptLen)
+			copy(newScript, oldScript[:oldScriptLen])
+		}
+
+		//create new txout with the deep copied data and append it to
+		//new tx.
+		NewTxOut := TxOut{
+			Value:    oldTxOut.Value,
+			PkScript: newScript,
+		}
+
+		newTx.TxOut = append(newTx.TxOut, &NewTxOut)
+	}
+
+	return &newTx
+
+}
+
+//btcdecode r using the bitcoin portocol encoding into the receiver.
+//this is part of the message interface implementation. see deserialize for
+//decoding transactions stored to disk ,such as in a database .as opposed to
+//decoding transactions from the wire.
+func (msg *MsgTx) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error {
+	version, err := binarySerializer.Uint32(r, littleEndian)
+	if err != nil {
+		return err
+	}
+	msg.Version = int32(version)
+
+	count, err := ReadVarInt(r, pver)
+	if err != nil {
+		return err
+	}
+
+	//a count of zero (meaing no txin to be uninitiated)indicates
+	//this is a transaction with witness data.
+	var flag [1]byte
+	if count == 0 && enc == WitnessEncoding {
+		//next we need to read the flag,which is a single byte.
+		if _, err := io.ReadFull(r, flag[:]); err != nil {
+			return err
+		}
+
+		//at the moment.the flag must be 0x01,in the futrue other
+		//flag types may be supported .
+		if flag[0] != 0x01 {
+			str := fmt.Sprintf("witness tx but flag byte is %x", flag)
+			return messageError("MsgTx.BtcDecode", str)
+		}
+		count, err = ReadVarInt(r, pver)
+		if err != nil {
+			return err
+		}
+	}
+
+	//prevent more input transaction than could possiblly fit into a
+	//message.it would be possible to cause memory exhaustion and panics
+	//without s sane upper bound on this count.
+	if count > uint64(maxTxInPerMessage) {
+		str := fmt.Sprintf("too many input transactions to fit into"+
+			"max message size[count %d ,max %d]", count, maxTxInPerMessage)
+		return messageError("msgtx.btcdecode", str)
+	}
+
+	//returnscriptbuffers is a closure that returns any script buffers that
+	//were borrowed from the pool when there are any deserilaization error
+	//this is only valid to call before the final step which replace the
+	//script with the location in a contiguous buffer and returns them.
+	returnScriptBuffers := func() {
+		for _, txIn := range msg.TxIn {
+			if txIn == nil {
+				continue
+			}
+
+			if txIn.SignatureScript != nil {
+				scriptPool.Return(txIn.SignatureScript)
+			}
+			for _, witnessElem := range txIn.Witness {
+				if witnessElem != nil {
+					scriptPool.Return(witnessElem)
+				}
+			}
+
+		}
+
+		for _, txOut := range msg.TxOut {
+			if txOut == nil || txOut.PkScript == nil {
+				continue
+			}
+			scriptPool.Return(txOut.PkScript)
+		}
+
+	}
+
+	//deserialize the inputs
+	var totalScriptSize uint64
+	txIns := make([]TxIn, count)
+	msg.TxIn = make([]*TxIn, count)
+	for i := uint64(0); i < count; i++ {
+		//the pointer is set now is in case a script buffer is borrorwed
+		//and needs to be returned to the pool on error.
+		ti := &txIns[i]
+		msg.TxIn[i] = ti
+		err = readTxIn(r, pver, msg.Version, ti)
+		if err != nil {
+			returnScriptBuffers()
+			return err
+		}
+		totalScriptSize += uint64(len(ti.SignatureScript))
+	}
+
+	count, err = ReadVarInt(r, pver)
+	if err != nil {
+		returnScriptBuffers()
+		return err
+	}
+
+	//prevent more output transaction than could possibly fit into a message
+	//it would be possible to cause memory exhaustion and panics without a
+	//sane upper bound on this count.
+	if count > uint64(maxTxOutPerMessage) {
+		returnScriptBuffers()
+		str := fmt.Sprintf("too many output transaction to fit into "+
+			"max message size[count %d,max %d]", count, maxTxOutPerMessage)
+		return messageError("msgtx.btcdecoder", str)
+	}
+	//deserialize the outputs.
+	txOuts := make([]TxOut, count)
+	msg.TxOut = make([]*TxOut, count)
+	for i := uint64(0); i < count; i++ {
+		//the pointer is set now in case a script buffer is borrowed
+		//and needs to be returned to the pool on error.
+		to := &txOuts[i]
+		msg.TxOut[i] = to
+		err = readTxOut(r, pver, msg.Version, to)
+		if err != nil {
+			returnScriptBuffers()
+			return err
+		}
+		totalScriptSize += uint64(len(to.PkScript))
+	}
+
+	//if the transaction flag is not 0x00 at this point ,then one or more
+	//of its inputs has accompanying witness data.
+	if flag[0] != 0 && enc == WitnessEncoding {
+		for _, txin := range msg.TxIn {
+			//for each input,the witness is encoded as a strack
+			//with one or more items. therefore,we first read a varint which
+			//encodes the number of stack items
+			witCount, err := ReadVarInt(r, pver)
+			if err != nil {
+				returnScriptBuffers()
+				return err
+			}
+
+			//prenent a possible memory exhaustion attack by
+			//limiting the witcount value to a sane upper bound.
+			if witCount > maxWitnessItemsPerInput {
+				returnScriptBuffers()
+				str := fmt.Sprintf("too many witness items to fit"+
+					"into max message size [count %d ,max %d]",
+					witCount, maxWitnessItemsPerInput)
+				return messageError("msgtx.btcdecoe", str)
+			}
+
+			//then for witcount number of stack items .ecah item has a varint
+			//lenth prefix .followed by the witness item iteself.
+			txin.Witness = make([][]byte, witCount)
+			for j := uint64(0); j < witCount; j++ {
+				txin.Witness[j], err = readScript(r, pver, maxWitnessItemSize, "script witness item")
+				if err != nil {
+					returnScriptBuffers()
+					return err
+				}
+				totalScriptSize += uint64(len(txin.Witness[j]))
+			}
+
+		}
+	}
+	msg.LockTime, err = binarySerializer.Uint32(r, littleEndian)
+	if err != nil {
+		returnScriptBuffers()
+		return err
+	}
+
+	//create a single allocation to house all of the script and set each input
+	//signature script and output public key script to the appropriate subclice
+	//of the overall contiguous buffer.then return each individual script buffer
+	//back to the pool so they can be reused for future deserializeations this is
+	//done because it significantly reduces the number of allocations the garbage
+	//colletor needs to track ,which in turn improves performance and drastically
+	//reduces the amount of runtime overhead that would otherwise be needed to keep
+	//track of millions of small allocations.
+	//note :it is no longer valid to call the returnscriptbuffers closure after
+	//these blocks of code run because it is already done and the script in the
+	//transaction inputs and outputs no longer point to the buffers.
+	var offset uint64
+	scripts := make([]byte, totalScriptSize)
+	for i := 0; i < len(msg.TxIn); i++ {
+		//copy the singatrue script into the contiguous buffer at the appropritate ossset
+		signatureScript := msg.TxIn[i].SignatureScript
+		copy(scripts[offset:], signatureScript)
+
+		//reset the signatrue script of the transaction input to the
+		//slice of the contiguous buffer where the script lives.
+		scriptSize := uint64(len(signatureScript))
+		end := offset + scriptSize
+		msg.TxIn[i].SignatureScript = scripts[offset:end:end]
+		offset += scriptSize
+
+		//return the temporary script buffer to the pool
+		scriptPool.Return(signatureScript)
+
+		for j := 0; j < len(msg.TxIn[i].Witness); j++ {
+			//copy each item within the witness strack for this input
+			//into the contiguous buffer at the appropriate offset
+			witnessElem := msg.TxIn[i].Witness[j]
+			copy(scripts[offset:], witnessElem)
+
+			//reset the witness item within the stack to the slice
+			//of the contiguous buffer where the witness lives.
+			witnessElemSize := uint64(len(witnessElem))
+			end := offset + witnessElemSize
+			msg.TxIn[i].Witness[j] = scripts[offset:end:end]
+			offset += witnessElemSize
+
+			//return the temporary buffer used for the witness stack
+			//item to the pool.
+			scriptPool.Return(witnessElem)
+
+		}
+
+	}
+
+	for i := 0; i < len(msg.TxOut); i++ {
+		//copy the public key script into the contiguous buffer at the appropriate
+		//offset
+		pkScript := msg.TxOut[i].PkScript
+		copy(scripts[offset:], pkScript)
+
+		//reset the public key script of the transaction output to the slice of
+		//the contiguous buffer where the script lives.
+		scriptSize := uint64(len(pkScript))
+		end := offset + scriptSize
+		msg.TxOut[i].PkScript = scripts[offset:end:end]
+		offset += scriptSize
+
+		//return the temporary script buffer to the pool.
+		scriptPool.Return(pkScript)
+	}
+	return nil
+}
