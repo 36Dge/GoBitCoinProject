@@ -81,3 +81,5 @@ func readInvVect(r io.Reader, pver uint32, iv *InvVect) error {
 func writeInvVect(w io.Writer, pver uint32, iv *InvVect) error {
 	return writeElements(w, iv.Type, &iv.Hash)
 }
+
+//over
