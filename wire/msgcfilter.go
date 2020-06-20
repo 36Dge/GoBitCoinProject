@@ -113,3 +113,5 @@ func NewMsgCFiler(filterType FilterType, blockHash *chainhash.Hash, data []byte)
 		Data:       data,
 	}
 }
+
+//over
