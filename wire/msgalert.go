@@ -160,12 +160,12 @@ func (alert *Alert) Serialize(w io.Writer, pver uint32) error {
 		return err
 	}
 	for i := 0; i < count; i++ {
-		err = writeElemnet(w, alert.SetCancel[i])
+		err = writeElement(w, alert.SetCancel[i])
 		if err != nil {
 			return err
 		}
 	}
-	err = writeElemnets(w, alert.MinVer, alert.MaxVer)
+	err = writeElements(w, alert.MinVer, alert.MaxVer)
 	if err != nil {
 		return err
 	}

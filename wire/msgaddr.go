@@ -67,7 +67,7 @@ func (msg *MsgAddr) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) err
 	addList := make([]NetAddress, count)
 	msg.AddrList = make([]*NetAddress, 0, count)
 	for i := uint64(0); i < count; i++ {
-		na := &addrList[i]
+		na := &addList[i]
 		err := readNetAddress(r, pver, na, true)
 		if err != nil {
 			return err
@@ -130,7 +130,7 @@ func (msg *MsgAddr) MaxPayloadLength(pver uint32) uint32 {
 //newmsgaddr returns a new bitcion addr message that conforms to the message interface
 //see msgaddr for details.
 func NewMsgAddr() *MsgAddr {
-	return MsgAddr{AddrList: make([]*NetAddress, 0, MaxAddrPerMsg)}
+	return &MsgAddr{AddrList: make([]*NetAddress, 0, MaxAddrPerMsg)}
 }
 
 //over
