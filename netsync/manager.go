@@ -5,9 +5,13 @@ import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/mempool"
+	"BtcoinProject/wire"
 	"container/list"
 	"github.com/btcsuite/btcutil"
+	"math/rand"
 	"sync"
+	peerpkg "BtcoinProject/peer"
+	"time"
 )
 
 const (
@@ -185,22 +189,132 @@ func (sm *SyncManager) findNextHeaderCheckpoint(height int32) *chaincfg.Checkpoi
 	return nextCheckpoint
 }
 
-//startSync将在可用的候选对等中选择最佳对等
-//从其下载、同步区块链。当同步已经在运行时候
-//只需返回即可，它也会检查哪些不再是，并根据
-//需要将其删除.
+//startsync will choose the best peer among the available candidate
+//peers to downlaod/sync the blockchain from.when sync is already running
+//it simply retuns .it also examines the candicate for any which are no
+//longer candicates and removers them sa needs.
 func (sm *SyncManager) startSync() {
-	//如果已经同步，请立即返回
+	//return now if we are already snncing
 	if sm.syncPeer != nil {
 		return
 	}
 
-//
+	//once the segwit soft-fork package has activated.we only want to
+	//sync from peers which are witness enabled to ensure that we fully
+	//validate all blockchain data.
+	segwitActive, err := sm.chain.IsDeploymentActive(chaincfg.DeploymentSegwit)
+	if err != nil {
+		log.Errorf("unable to query for segwit soft-fork sate :%v", err)
+		return
+	}
 
+	best := sm.chain.BestSnapshot()
+	var higherPeers, equalPeers []*peerpkg.Peer
+	for peer, state := range sm.peerStates {
+		if !state.syncCandidate {
+			continue
+		}
 
+		if segwitActive && !peer.IsWitnessEnabled() {
+			log.Debugf("peer %v not witness enabled,skipping ", peer)
+			continue
+		}
 
+		//remove sync candidate peers that are no longer candidates due
+		//to passing their latest known block. NOte:the < is international
+		//does not have a later block when it is equal .it will likely have
+		//one soon so it is a reasonable choice .it also allows the case
+		//where both are at 0 such as during regerssion test.
+		if peer.LastBlcok() < best.Heigth {
+			state.syncCandidate = false
+			continue
+		}
 
+		//if the peer is at the same height as us .we will add it a set
+		//of backup peers in case we do not find one with a higher height
+		//.if we are synced up with all of our peers all of them will be in
+		//this set
+		if peer.LastBlock() == best.Height {
+			equalPeers = append(equalPeers, peer)
+			continue
+		}
 
+		//this peer has a height greater than our oun .we will consider
+		//it in the set of better peers from which we will randomly select.
+		higherPeers = append(higherPeers, peer)
 
+	}
+	//pick randomly from the set of peers greater than our block hegit.
+	//falling back to a random peer of the same height if none are greater
+	//
+	//oberved metric and / or sync in parallel.
+
+	var bestPeer *peerpkg.Peer
+	switch {
+	case len(higherPeers) > 0:
+		bestPeer = higherPeers[rand.Intn(len(higherPeers))]
+
+	case len(equalPeers) > 0:
+		bestPeer = equalPeers[rand.Intn(len(equalPeers))]
+
+	}
+
+	//start syncing from the best peer if one was selected.
+	if bestPeer != nil {
+		//clear the requestblocks if the sync peer changes.otherwise
+		//we may ignore blocks we need that the last sync peer failed
+		//to send.
+		sm.requestedBlocks = make(map[chainhash.Hash]struct{})
+
+		locator, err := sm.chain.LatestBlockLocator()
+		if err != nil {
+			log.Errorf("failed to get block locator for the "+
+				"latest block :v", err)
+			return
+		}
+
+		log.Infof("syncing to block height %d from peer %v",
+			bestPeer.LastBlock(), bestPeer.Addr())
+
+		// When the current height is less than a known checkpoint we
+		// can use block headers to learn about which blocks comprise
+		// the chain up to the checkpoint and perform less validation
+		// for them.  This is possible since each header contains the
+		// hash of the previous header and a merkle root.  Therefore if
+		// we validate all of the received headers link together
+		// properly and the checkpoint hashes match, we can be sure the
+		// hashes for the blocks in between are accurate.  Further, once
+		// the full blocks are downloaded, the merkle root is computed
+		// and compared against the value in the header which proves the
+		// full block hasn't been tampered with.
+		//
+		// Once we have passed the final checkpoint, or checkpoints are
+		// disabled, use standard inv messages learn about the blocks
+		// and fully validate them.  Finally, regression test mode does
+		// not support the headers-first approach so do normal block
+		// downloads when in regression test mode.
+		if sm.nextCheckpoint != nil &&
+			best.Height < sm.nextCheckpoint.Height &&
+			sm.chainParams != &chaincfg.ResgressionNetParams {
+			bestPeer.PushGetHeadersMsg(locator, sm.nextCheckpoint.Hash)
+			sm.headersFirstMode = true
+			log.Infof("downloading headers for blocks %d to "+
+				"%d from peer %s ", best.Height+1, sm.nextCheckpoint.Height, best.Height+1,
+				sm.nextCheckpoint.Height, bestPeer.Addr())
+		} else {
+			bestPeer.PushGetBlocksMsg(locator, &zeroHash)
+		}
+		sm.syncPeer = bestPeer
+		// Reset the last progress time now that we have a non-nil
+		// syncPeer to avoid instantly detecting it as stalled in the
+		// event the progress time hasn't been updated recently.
+		sm.lastProgressTime = time.Now()
+
+	} else {
+		log.Warnf("no sync peer candidates availalbe")
+	}
 
 }
+
+
+
