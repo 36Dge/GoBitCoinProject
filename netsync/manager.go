@@ -792,14 +792,95 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 
 	}
 
-
-
-
-
-
-
-
-
-
+	//this is header-first mode.the block is a checkpoint ,and there are
+	//no more checkpoint.so switch to normal mode by requesting blcoks
+	//from the block after this one up to end of chain (zero hash)
+	sm.headersFirstMode = false
+	sm.headerList.Init()
+	log.Infof("reached the final checkpoint -- switch to normal mode ")
+	locator := blockchain.BlockLocator([]*chainhash.Hash{blockHash})
+	err = peer.PushGetBlocksMsg(locator, &zeroHash)
+	if err != nil {
+		log.Warnf("failed to send getblocks message to peer %s:%v",
+			peer.Addr(), err)
+		return
+	}
 
 }
+
+//fetchheaderblocks creates and sends a request to the syncpeer for the next
+//list of blocks to be downloaded based on the current list of headers.
+func (sm *SyncManager) fetchHeaderBlocks() {
+	//nothing to do if there is no start header.
+	if sm.startHeader == nil {
+		log.Warnf("fetchheaderblcoks called with no start header")
+		return
+	}
+
+	//build up a getdata requested for the list of blocks the headers
+	//describe .the size hint will be limited to wire.maxinvpermsg by
+	//the function.so no need to double check it here.
+
+	gdmsg := wire.NewMsgGetDataSizeHint(uint(sm.headerList.Len()))
+	numRequested := 0
+	for e := sm.startHeader; e != nil; e = e.Next() {
+		node, ok := e.Value.(*headerNode)
+		if !ok {
+			log.Warnf("header list node type is not a headernode")
+			continue
+		}
+
+		iv := wire.NewInvVect(wire.InvTypeBlock, node.hash)
+		haveInv, err := sm.haveInventory(iv)
+		if err != nil {
+			log.Warnf("unexpected failure when checking for "+
+				"existing inventory during header block"+
+				"fetch:%v", error())
+		}
+		if !haveInv{
+			syncPeerState := sm.peerStates[sm.syncPeer]
+
+			sm.requestedBlocks[*node.hash] = struct{}{}
+			syncPeerState.requestedBlocks[*node.hash] = struct{}{}
+
+			//if we are fetching from a witness enabled peer post-fork.
+			//then ensure that we recive all the witness data in the blocks.
+			if sm.syncPeer.IsWitnessEnabled(){
+				iv.Type = wire.InvTypeWitnessBlock
+			}
+
+			gdmsg.AddInvVect(iv)
+
+			numRequested++
+
+		}
+
+		sm.startHeader = e.Next()
+		if numRequested >= wire.MaxInvPerMsg{
+			break
+		}
+
+	}
+	if len(gdmsg.InvList)> 0{
+		sm.syncPeer.QueueMessage(gdmsg,nil)
+	}
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
