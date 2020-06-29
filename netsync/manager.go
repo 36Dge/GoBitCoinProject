@@ -979,16 +979,58 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 
 }
 
+//haveinventory returns whether or not the inventory represented by the
+//passed inventory vector is known .this include checking all of the various
+//places invnetroy can be when it is in different states such as blcoks that
+//part of then main chain. on a side chain. in the orphan pool.and transaction that
+//are in the memory pool.(either the main pool or orphan pool)
+func (sm *SyncManager) haveInventory(invVect *wire.InvVect) (bool, error) {
+
+	switch invVect.Type {
+	case wire.InvTypeWitnessBlock:
+		fallthrough
+	case wire.InvTypeBlock:
+		//ask chain if the block if known to it in any form(mian chain)
+		//,side chain. or orphan.
+		return sm.chain.HaveBlock(&invVect.Hash)
+
+	case wire.InvTypeWitnessTx:
+		fallthrough
+	case wire.InvTypeTx:
+		//ask the tranasction memeory pool if the transaction is known to it
+		//in any form (main pool or orphan).
+		if sm.txMemPool.HaveTransaction(&invVect.Hash) {
+			return true, nil
+		}
+
+		//check if the transaction exists from the point of view of the
+		//end of the main chain.note that this is only a best effort
+		//since it is expensive to check existence of every output and
+		//the only purpose of this check is to avoid downloading already
+		//known transactions .only the first two outputs are checked
+		//because the vast majority of transaction consists of two
+		//outputs where one is some form of pay to somebody else and
+		//the other is a change output.
+
+		prevOut := wire.OutPoint{Hash: invVect.Hash}
+		for i := uint32(0); i < 2; i++ {
+			prevOut.Index = i
+			entry, err := sm.chain.FetchUtxoEntry(prevOut)
+			if err != nil {
+				return false, err
+			}
+			if entry != nil && entry.isSpent() {
+				return true, nil
+			}
+		}
+
+		return false,nil
+	}
 
 
+	//the requested inventory is an unsupported type,so just claim
+	//it is known to avoid requesting it.
+	return true ,nil
 
 
-
-
-
-
-
-
-
-
-
+}
