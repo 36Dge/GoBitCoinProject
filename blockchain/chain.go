@@ -110,3 +110,85 @@ type orphanBlock struct {
 	expiration time.Time
 }
 
+
+
+// GetOrphanRoot returns the head of the chain for the provided hash from the
+// map of orphan blocks.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) GetOrphanRoot(hash *chainhash.Hash) *chainhash.Hash {
+	// Protect concurrent access.  Using a read lock only so multiple
+	// readers can query without blocking each other.
+	b.orphanLock.RLock()
+	defer b.orphanLock.RUnlock()
+
+	// Keep looping while the parent of each orphaned block is
+	// known and is an orphan itself.
+	orphanRoot := hash
+	prevHash := hash
+	for {
+		orphan, exists := b.orphans[*prevHash]
+		if !exists {
+			break
+		}
+		orphanRoot = prevHash
+		prevHash = &orphan.block.MsgBlock().Header.PrevBlock
+	}
+
+	return orphanRoot
+}
+
+
+
+// IsKnownOrphan returns whether the passed hash is currently a known orphan.
+// Keep in mind that only a limited number of orphans are held onto for a
+// limited amount of time, so this function must not be used as an absolute
+// way to test if a block is an orphan block.  A full block (as opposed to just
+// its hash) must be passed to ProcessBlock for that purpose.  However, calling
+// ProcessBlock with an orphan that already exists results in an error, so this
+// function provides a mechanism for a caller to intelligently detect *recent*
+// duplicate orphans and react accordingly.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) IsKnownOrphan(hash *chainhash.Hash) bool {
+	// Protect concurrent access.  Using a read lock only so multiple
+	// readers can query without blocking each other.
+	b.orphanLock.RLock()
+	_, exists := b.orphans[*hash]
+	b.orphanLock.RUnlock()
+
+	return exists
+}
+
+
+
+// BlockLocatorFromHash returns a block locator for the passed block hash.
+// See BlockLocator for details on the algorithm used to create a block locator.
+//
+// In addition to the general algorithm referenced above, this function will
+// return the block locator for the latest known tip of the main (best) chain if
+// the passed hash is not currently known.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) BlockLocatorFromHash(hash *chainhash.Hash) BlockLocator {
+	b.chainLock.RLock()
+	node := b.index.LookupNode(hash)
+	locator := b.bestChain.blockLocator(node)
+	b.chainLock.RUnlock()
+	return locator
+}
+
+
+
+// LatestBlockLocator returns a block locator for the latest known tip of the
+// main (best) chain.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) LatestBlockLocator() (BlockLocator, error) {
+	b.chainLock.RLock()
+	locator := b.bestChain.BlockLocator(nil)
+	b.chainLock.RUnlock()
+	return locator, nil
+}
+
+

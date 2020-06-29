@@ -1024,13 +1024,223 @@ func (sm *SyncManager) haveInventory(invVect *wire.InvVect) (bool, error) {
 			}
 		}
 
-		return false,nil
+		return false, nil
 	}
-
 
 	//the requested inventory is an unsupported type,so just claim
 	//it is known to avoid requesting it.
-	return true ,nil
+	return true, nil
 
+}
+
+//handleinvmsg handles inv message from all peers.
+//we examine the invetory advertised by the remote peer and act accordingly.
+func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
+	peer := imsg.peer
+	state, exists := sm.peerStates[peer]
+	if !exists {
+		log.Warnf("received inv message from unkonwn peer %s", peer)
+		return
+	}
+
+	//attempt to find the final block in the inventory list.there may not
+	//not be one.
+	lastBlock := -1
+	invVects := imsg.inv.InvList
+	for i := len(invVects) - 1; i >= 0; i-- {
+		if invVects[i].Type == wire.InvTypeBlock {
+			lastBlock = i
+			break
+		}
+	}
+
+	//if this contains a block announcement. and this isn,t coming from
+	//our current sync peer or we are current.then update the last annoucement.
+	//block for this peer.we will use this information later to update the
+	//height of peers based on blocks we have accepted that they previously
+	//annoucemed.
+	if lastBlock != -1 && (peer != sm.syncPeer || sm.current()) {
+		peer.UpdateLastAnnouncedBlock(&invVects[lastBlock].Hash)
+	}
+
+	//ingnor invs from peers that are not the sync if we are not current
+	//helps prevent fetching a mass of orphans.
+	if peer != sm.syncPeer && !sm.current() {
+		return
+	}
+
+	//if our chain is current and a peer annouces a block we already
+	//know of .then update their current block height .
+	if lastBlock != -1 && sm.current() {
+		blkHeight, err := sm.chain.BlockHeightByHash(&invVects[lastBlock].Hash)
+		if err == nil {
+			peer.UpdateLastBlockHeight(blkHeight)
+		}
+	}
+
+	//request the advertised inventory if we do not alreay have it .also
+	//request parent blocks of orphans if we receive one we already have.
+	//finally.attempt to detect potential stalls due to long side chains
+	//we already have and request more blocks to prevent them.
+	for i, iv := range invVects {
+		//ignore unsupprted inventory types.
+		switch iv.Type {
+		case wire.InvTypeBlock:
+		case wire.InvTypeTx:
+		case wire.InvTypeWitnessBlock:
+		case wire.InvTypeWitnessTx:
+		default:
+			continue
+
+		}
+
+		//add the inventory to the cache of known invntory for the peer.
+		peer.AddKnownInventory(iv)
+
+		//innore inventory when we are in header-first mode.
+		if sm.headersFirstMode {
+			continue
+		}
+
+		//request the inventroy if we do not already have it
+		haveInv, err := sm.haveInventory(iv)
+		if err != nil {
+			log.Warnf("unexpected failure when checking for "+
+				"existing inventroy during inv messag "+
+				"procesing :%v", err)
+			continue
+		}
+
+		if !haveInv {
+			if iv.Type == wire.InvTypeTx {
+				//skip the transaction if it has already been rejected
+				if _, exists := sm.requestedTxns[iv.Hash]; exists {
+					continue
+				}
+
+			}
+
+			//ignore invs block invs from non-witness enabled
+			//peer as after segwit activation we only want to
+			//download from peers that can provide us full witness
+			//data for blocks.
+			if !peer.IsWitnessEnable() && iv.Type == wire.InvTypeBlock {
+				continue
+			}
+
+			//add it to the request queue
+			state.requestQueue = append(state.requestQueue, iv)
+			continue
+
+		}
+
+		if iv.Type == wire.InvTypeBlock {
+
+			//the block is an orphan block that we already have .
+			//when the existing orphan was precessed ,t requested
+			// the missing parent blocks.  When this scenario
+			// happens, it means there were more blocks missing
+			// than are allowed into a single inventory message.  As
+			// a result, once this peer requested the final
+			// advertised block, the remote peer noticed and is now
+			// resending the orphan block as an available block
+			// to signal there are more missing blocks that need to
+			// be requested.
+			if sm.chain.IsKnownOrphan(&iv.Hash) {
+				//request blocks starting at the latest known
+				//up to the root of the orphan that just came
+				//in.
+				orphanRoot := sm.chain.GetOrphanRoot(&iv.Hash)
+				locator, err := sm.chain.LatestBlockLocator()
+				if err != nil {
+					log.Errorf("PEER: Failed to get block "+
+						"locator for the latest block: "+
+						"%v", err)
+					continue
+				}
+				peer.PushGetBlocksMsg(locator, orphanRoot)
+				continue
+			}
+
+			// We already have the final block advertised by this
+			// inventory message, so force a request for more.  This
+			// should only happen if we're on a really long side
+			// chain.
+			if i == lastBlock {
+				// Request blocks after this one up to the
+				// final one the remote peer knows about (zero
+				// stop hash).
+				locator := sm.chain.BlockLocatorFromHash(&iv.Hash)
+				peer.PushGetBlocksMsg(locator, &zeroHash)
+
+			}
+
+		}
+
+	}
+
+	//request as much as possible at once ,anything that wont not fit ninto
+	//the request will be requested on the next inv message
+	numRequested := 0
+	gdmsg := wire.NewMsgGetData()
+	requestQueue := state.requestQueue
+	for len(requestQueue) != 0 {
+		iv := requestQueue[0]
+		requestQueue[0] = nil
+		requestQueue = requestQueue[1:]
+
+		switch iv.Type {
+		case wire.InvTypeWitnessBlock:
+			fallthrough
+		case wire.InvTypeBlock:
+			//request the block if there is not already a pending request
+			if _, exists := sm.requestedBlocks[iv.Hash]; !exists {
+				sm.requestedBlocks[iv.Hash] = struct{}{}
+				sm.limitMap(sm.requestedBlocks, maxRequestedBlocks)
+				state.requestedBlocks[iv.Hash] = struct{}{}
+
+				if peer.IsWitnessEnabled() {
+					iv.Type = wire.InvTypeWitnessBlock
+				}
+
+				gdmsg.AddInvVect(iv)
+				numRequested++
+			}
+
+		case wire.InvTypeWitnessTx:
+			fallthrough
+		case wire.InvTypeTx:
+			//request the transaction if there is not already a
+			//pending request
+
+			if _, exists := sm.requestedTxns[iv.Hash]; !exists {
+				sm.requestedTxns[iv.Hash] = struct{}{}
+				sm.limitMap(sm.requestedTxns, maxRequestedTxns)
+				state.requestedTxns[iv.Hash] = struct{}{}
+
+				//if the peer is capable ,request the txn including
+				//all witness data.
+
+				if peer.IsWitnessEnabled() {
+					iv.Type = wire.InvTypeWitnessTx
+				}
+
+				gdmsg.AddInvVect(iv)
+				numRequested++
+
+			}
+
+		}
+
+		if numRequested >= wire.MaxInvPerMsg {
+			break
+		}
+
+		state.requestedQueue = requestQueue
+		if len(gdmsg.InvList) > 0 {
+			peer.QueueMessage(gdmsg, nil)
+		}
+
+	}
 
 }
