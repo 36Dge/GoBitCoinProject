@@ -1333,30 +1333,94 @@ out:
 	log.Trace("block handler done")
 }
 
+//handleblockchainnotification handles notification from blockchain ,it does
+//things such as ruquest orphans block parents and relay accepted blocks to
+//to connetced peers.
+func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Notification) {
+	switch notification.Type {
+	//a block has been accepted into the block chain.relay it to other
+	//peer
 
+	case blockchain.NTBlockAccepted:
+		// do not relay if we are not current .other peers that are current should
+		//already known about it
+		if !sm.current() {
+			return
+		}
 
+		block, ok := notification.Data.(*btcutil.Block)
+		if !ok {
+			log.Warnf("chain accepted notification is not a block")
+			break
+		}
 
+		//generate the inventory vector and realy it
+		iv := wire.NewInvVect(wire.InvTypeBlock, block.Hash())
+		sm.PeerNotifier.RelayInventory(iv, block.MsgBlock().Header)
 
+	//a block has been connected to the main block chain.
 
+	case blockchain.NTBlockAccepted
+		block, ok := notification.Data.(*btcutil.Block)
+		if !ok {
+			log.Warnf("chain connected notification is not a block")
+			break
+		}
 
+		//remove all of the transactions (expect the coinbase)in the connected
+		//block from the transaction pool,secondly ,remove any transactions which
+		//are now double spends as a result of there new transaction.finnally
+		//remove any transaction that is no longer an orphan .transaction which
+		//depned on a confirmed transaction are Not recursively because they
+		//are still valid.
+		for _, tx := range block.Transactions()[1:] {
+			sm.txMemPool.RemoveTransaction(tx, false)
+			sm.txMemPool.RemoveBoubleSpends(tx)
+			sm.txMemPool.RemoveOrphan(tx)
+			sm.PeerNotifier.TransactionConfirmed(tx)
+			acceptedTxs := sm.txMemPool.ProcessOrphans(tx)
+			sm.PeerNotifier.AnnounceNewTransacitions(acceptedTxs)
+		}
 
+		//register block with the fee estimator ,if it exists.
+		if sm.feeEstimator != nil {
+			err := sm.feeEstimator.RegisterBlcok(block)
 
+			//if an error is somehow generated then the fee estimator
+			//has entered an invalid state .since it doens,t know how
+			//to receiver ,create a new one
+			if err != nil {
+				sm.feeEstimator = mempool.NewFeeEstimator(
+					mempool.DefaultEstimateFeeMaxRollback,
+					mempool.DefaultEstimateFeeMinRegisteredBlocks)
+			}
+		}
 
+	//a block has been disconnected from the main block chain.
+	case blockchain.NTBlockDisconnected:
+		block, ok := notification.Data.(*btcutil.Block)
+		if !ok {
+			log.Warnf("chain disconnected notification is not a block")
+			break
+		}
 
+		//reinsert all of the transaction (expect the coinbase) into the
+		//transaction pool
+		for _, tx := range block.Transactions()[1:] {
+			_, _, err := sm.txMemPool.MaybeAcceptTransaction(tx, false, false)
+			if err != nil {
+				//remove the transaction and all transactions that depned
+				//on it if it was not accepted into the transaction pool
+				sm.txMemPool.RemoveTransaction(tx, true)
+			}
+		}
 
+		//rollbace previous block recoded by the fee esstimator.
+		if sm.feeEstimator != nil {
+			sm.feeEstimator.Rollback(block.Hash())
+		}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+	}
+}
 
 
