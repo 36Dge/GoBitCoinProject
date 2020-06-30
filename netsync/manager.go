@@ -29,6 +29,13 @@ const (
 	//MaxRequestedTxns是请求的最大事务数
 	//哈希值存储在内存中。
 	maxRequestedTxns = wire.MaxInvPerMsg
+	// maxStallDuration is the time after which we will disconnect our
+	// current sync peer if we haven't made progress.
+	maxStallDuration = 3 * time.Minute
+
+	// stallSampleInterval the interval at which we will check to see if our
+	// sync has stalled.
+	stallSampleInterval = 30 * time.Second
 )
 
 // zero hash是零哈希值（全部为零）。它被定义在为一种便利
@@ -50,6 +57,11 @@ type blockMsg struct {
 //所以块处理程序可以访问这些消息
 type invMsg struct {
 	inv  *wire.MsgInv
+	peer *peerpkg.Peer
+}
+
+//donepeermsg signifies a newly disconnectted peer to the block handler.
+type donePeerMsg struct {
 	peer *peerpkg.Peer
 }
 
@@ -1244,3 +1256,107 @@ func (sm *SyncManager) handleInvMsg(imsg *invMsg) {
 	}
 
 }
+
+//blockhandle is the main handle for the sync manager. it must be run as
+//a goroutine .it process block and inv message in a separate goroutine
+//from the peer handles so the block message are handled by a single therad
+//without needing to lock memory data structures. this is important because
+//the sync manager controls which blocks are needed and how the fetching
+//should proceed.
+func (sm *SyncManager) blockHandler() {
+	stallTicker := time.NewTicker(stallSampleInterval)
+	defer stallTicker.Stop()
+
+out:
+	for {
+		select {
+		case m := <-sm.msgChan:
+			switch msg := m.(type) {
+			case *newPeerMsg:
+				sm.handleNewPeerMsg(msg.peer)
+
+			case *txMsg:
+				sm.handleTxMsg(msg)
+				msg.reley <- struct{}{}
+
+			case *blockMsg:
+				sm.handleBlockMsg(msg)
+				msg.relay <- struct{}{}
+
+			case *invMsg:
+				sm.handleInvMsg(msg)
+
+			case *headersMsg:
+				sm.handleHeadersMsg(msg)
+			case *donePeerMsg:
+				sm.handleDonePeerMsg(msg.peer)
+
+			case getSyncPeerMsg:
+				var peerID int32
+				if sm.syncPeer != nil {
+					peerID = sm.syncPeer.ID()
+				}
+				msg.relay <- peerID
+
+			case processBlockMsg:
+				_, isOrphan, err := sm.chain.ProcessBlock(msg.block, msg.flags)
+				if err != nil {
+					msg.reply <- processBlockResponse{
+						isOrphan: false,
+						err:      err,
+					}
+				}
+				msg.reply <- processBlockResponse{
+					isOrphan: isOrphan,
+					err:      nil,
+				}
+
+			case isCurrentMsg:
+				msg.reply <- sm.current()
+
+			case pauseMsg:
+				//wait until the sender unpaused the manager.
+				<-msg.unpause
+			default:
+				log.Warnf("invalid message type in block"+
+					"handler:%T", msg)
+
+			}
+		case <-stallTicker.C:
+			sm.handleStallSample()
+		case <-sm.quit:
+			break out
+
+		}
+	}
+	sm.wg.Done()
+	log.Trace("block handler done")
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
