@@ -399,7 +399,7 @@ func (sm *SyncManager) handleNewPeerMsg(peer *peerpkg.Peer) {
 //stalled .this is detected when by comparing the last progerss timestamp
 //with the current time.and disconnecting the peer if we stalled before reaching
 //their hightest advertised block.
-func (sm *SyncManager) handleStallSample {
+func (sm *SyncManager) handleStallSample() {
 	if atomic.LoadInt32(&sm.shutdown) != 0 {
 		return
 	}
@@ -1360,7 +1360,7 @@ func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Not
 
 	//a block has been connected to the main block chain.
 
-	case blockchain.NTBlockAccepted
+	case blockchain.NTBlockConnected:
 		block, ok := notification.Data.(*btcutil.Block)
 		if !ok {
 			log.Warnf("chain connected notification is not a block")
@@ -1423,4 +1423,168 @@ func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Not
 	}
 }
 
+//newpeer informs the sync manager of a newly active peer.
+func (sm *SyncManager) NewPeer(peer *peerpkg.Peer) {
+	//ignore if we are shutting down.
+	if atomic.LoadInt32(&sm.shutdown) != 0 {
+		return
+	}
+	sm.msgChan <- &newPeerMsg{peer: peer}
+}
 
+//queuetx adds the passed transaction message and peer to the block handling
+//queue,responsd to the done channel argument after the tx message is processed.
+func (sm *SyncManager) QueueTx(tx *btcutil.Tx, peer *peerpkg.Peer, done chan struct{}) {
+	//do not accept more transaction if we are shutting down
+	if atomic.LoadInt32(&sm.shutdown) != 0 {
+		done <- struct{}{}
+		return
+	}
+	sm.msgChan <- &txMsg{tx: tx, peer: peer, reley: done}
+}
+
+//queueblock adds the passed block message and peer to the block handling
+//queue.responds to the done channel arguements after the block message is
+//processed.
+func (sm SyncManager) QueueBlock(block *btcutil.Block, peer *peerpkg.Peer, done chan struct{}) {
+	//do not accept more blocks if we are shutting down.
+	if atomic.LoadInt32(&sm.shutdown) != 0 {
+		done <- struct{}{}
+		return
+	}
+	sm.msgChan <- &blockMsg{block: block, peer: peer, relay: done}
+}
+
+//queueinv adds the passed inv message and peer to the block handling queue
+func (sm *SyncManager) QueueInv(inv *wire.MsgInv, peer *peerpkg.Peer) {
+	//no channel handling here because peers do not need to block on inv
+	//message
+	if atomic.LoadInt32(&sm.shutdown) != 0 {
+		return
+	}
+	sm.msgChan <- &invMsg{inv: inv, peer: peer}
+
+}
+
+//queueheaders adds the passed headers message and peer to the block handling queue
+func (sm *SyncManager) QueueHeader(headers *wire.MsgHeaders, peer *peerpkg.Peer) {
+	//no channel handling here because peers do not need to block on headers message
+	if atomic.LoadInt32(&sm.shutdown) != 0 {
+		return
+	}
+
+	sm.msgChan <- &headersMsg{headers: headers, peer: peer}
+}
+
+//donepeer informs the blockmanager that a peer has disconnected.
+func (sm *SyncManager) DonePeer(peer *peerpkg.Peer) {
+	//ignore if we are shutting down
+	if atomic.LoadInt32(&sm.shutdown) != 0 {
+		return
+	}
+
+	sm.msgChan <- &donePeerMsg{peer: peer}
+}
+
+//start begins the core blcok hanler which precess blcok and inv message
+func (sm *SyncManager) Start() {
+	//alaredy started?
+	if atomic.AddInt32(&sm.started, 1) != 1 {
+		return
+	}
+
+	log.Trace("strating sync manager")
+	sm.wg.Add(1)
+	go sm.blockHandler()
+
+}
+
+//stop gracefully shuts down the sync manager by stopping all asychronous
+//hanlers and waiting for them to finish.
+func (sm *SyncManager) Stop() error {
+	if atomic.AddInt32(&sm.shutdown, 1) != 1 {
+		log.Warnf("sync manager is already in the process of " +
+			"shutting down")
+		return nil
+	}
+	log.Infof("sync manager shuting down")
+	close(sm.quit)
+	sm.wg.Wait()
+	return nil
+}
+
+//syncpeerid returns the id of the current sync peer,or 0
+//if there is none.
+func (sm *SyncManager) SyncPeerID() int32 {
+	reply := make(chan int32)
+	sm.msgChan <- getSyncPeerMsg{relay: reply}
+	return <-reply
+}
+
+//processblock makes use of processblock on an internal instance of
+//a block chain
+func (sm *SyncManager) ProcessBlock(block *btcutil.Block, flags blockchain.BehaviorFlags) (bool, error) {
+
+	reply := make(chan processBlockResponse, 1)
+	sm.msgChan <- processBlockMsg{block: block, flags: flags, reply: reply}
+	response := <-reply
+	return response.isOrphan, response.err
+
+}
+
+//iscurrents returs whethers or not the sync manager believes it is synced with
+//the connected peers
+func (sm *SyncManager) IsCurrent() bool {
+	reply := make(chan bool)
+	sm.msgChan <- isCurrentMsg{reply: reply}
+	return <-reply
+
+}
+
+//pause the sync manager until the returned channel is closed .
+//note that while paused all peer and block processing is halted .
+//the message sender should avoid pasuing the sync manager for long
+//durations.
+func (sm *SyncManager) Pause() chan<- struct{} {
+	c := make(chan struct{})
+	sm.msgChan <- pauseMsg{c}
+	return c
+
+}
+
+// New constructs a new SyncManager. Use Start to begin processing asynchronous
+// block, tx, and inv updates.
+func New(config *Config) (*SyncManager, error) {
+	sm := SyncManager{
+		peerNotifier:    config.PeerNotifier,
+		chain:           config.Chain,
+		txMemPool:       config.TxMemPool,
+		chainParams:     config.ChainParams,
+		rejectedTxns:    make(map[chainhash.Hash]struct{}),
+		requestedTxns:   make(map[chainhash.Hash]struct{}),
+		requestedBlocks: make(map[chainhash.Hash]struct{}),
+		peerStates:      make(map[*peerpkg.Peer]*peerSyncState),
+		progressLogger:  newBlockProgressLogger("Processed", log),
+		msgChan:         make(chan interface{}, config.MaxPeers*3),
+		headerList:      list.New(),
+		quit:            make(chan struct{}),
+		feeEstimator:    config.FeeEstimator,
+	}
+
+	best := sm.chain.BestSnapshot()
+	if !config.DisableCheckpoints {
+		// Initialize the next checkpoint based on the current height.
+		sm.nextCheckpoint = sm.findNextHeaderCheckpoint(best.Height)
+		if sm.nextCheckpoint != nil {
+			sm.resetHeaderState(&best.Hash, best.Height)
+		}
+	} else {
+		log.Info("Checkpoints are disabled")
+	}
+
+	sm.chain.Subscribe(sm.handleBlockchainNotification)
+
+	return &sm, nil
+}
+
+//over
