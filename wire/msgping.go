@@ -1,0 +1,3 @@
+package wire
+
+//msgping imple
