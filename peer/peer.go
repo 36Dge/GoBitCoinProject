@@ -4,7 +4,10 @@ import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
+	"github.com/btcsuite/go-socks/socks"
+	"golang.org/x/net/proxy"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -262,6 +265,115 @@ func minUint32(a, b uint32) uint32 {
 	return b
 }
 
+//newnetaddress attempts to extract the ip address and port from th e
+//passed net.addr interface and create a bitcoin netaddress structre using
+//that information.
+func newNetAddress(addr net.Addr, services wire.ServiceFlag) (*wire.NetAddress, error) {
+	//addr will be a net.tcpaddr when not using a proxy .
+	if tcpAddr, ok := addr.(*net.TCPAddr); ok {
+		ip := tcpAddr.IP
+		port := uint16(tcpAddr.Port)
+		na := wire.NewNetAddressIPPort(ip, port, services)
+		return na, nil
+	}
+
+	//addr will be a sock.proxiedaddr when using a proxy
+	if proxiedAddr, ok := addr.(*socks.ProxiedAddr); ok {
+		ip := net.ParseIP(proxiedAddr.Host)
+		if ip == nil {
+			ip = net.ParseIP("0.0.0.0")
+		}
+		port := uint16(proxiedAddr.Port)
+		na := wire.NewNetAddressIPPort(ip, port, services)
+		return na, nil
+	}
+
+	//for the most part ,addr should be one of the two above cases,but
+	//to be safe,fall back to trying to parse the information from the
+	//address string as a last resort.
+	host, portStr, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return nil, err
+	}
+	ip := net.ParseIP(host)
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return nil, err
+	}
+	na := wire.NewNetAddressIPPort(ip, uint16(port), services)
+	return na, nil
+
+}
+
+//outmsg is used to house a message to be sent along with a channel to singal
+//when the message has been sent(or will not be sent due to things such as shutdown)
+type outMsg struct {
+	msg      wire.Message
+	doneChan chan<- struct{}
+	encoding wire.MessageEncoding
+}
+
+//stallcontrolcmd represents the command of a stall control message.
+type stallControlCmd uint8
+
+//constants for the command of a stall control message.
+const (
+
+	// sccSendMessage indicates a message is being sent to the remote peer.
+	sccSendMessage stallControlCmd = iota
+
+	// sccReceiveMessage indicates a message has been received from the
+	// remote peer.
+	sccReceiveMessage
+
+	// sccHandlerStart indicates a callback handler is about to be invoked.
+	sccHandlerStart
+
+	// sccHandlerStart indicates a callback handler has completed.
+	sccHandlerDone
+)
+
+//stallcontrolmsg is used to signal the stall handler about specific enents
+//so it can porperly detect and handle stalled remote peers.
+type stallControlMsg struct {
+	command stallControlCmd
+	message wire.Message
+}
+
+//startsnap is a snapshot of peer starts at a point in time
+type StartsSnap struct {
+	ID             int32
+	Addr           string
+	Services       wire.ServiceFlag
+	LastSend       time.Time
+	LastRecv       time.Time
+	BytesSent      uint64
+	BytesRecv      uint64
+	ConnTime       time.Time
+	TimeOffset     int64
+	Version        uint32
+	UserAgent      string
+	Inbound        bool
+	StartingHeight int32
+	LastBlock      int32
+	LastPingNonce  uint64
+	LastPingTime   time.Time
+	LastPingMicros int64
+}
+
+//hashfunc is function which returns a block hash,height and error
+//it is used as a callback to get newest block details.
+type HashFunc func() (hash *chainhash.Hash, height int32, err error)
+
+//addrfunc is a func which takes an address and returns a related address
+type AddrFunc func(remoteAddr *wire.NetAddress) *wire.NetAddress
+
+//hosttonetaddrfunc is a func which takes a host ,port ,services and returns
+//the netaddress.
+type HostToNetAddrFunc func(host string, port uint16, services wire.ServiceFlag) (*wire.NetAddress, error)
+
+
+
 
 
 // NOTE: The overall data flow of a peer is split into 3 goroutines.  Inbound
@@ -351,6 +463,9 @@ type Peer struct {
 	outQuit       chan struct{}
 	quit          chan struct{}
 }
+
+
+
 
 // PushGetBlocksMsg sends a getblocks message for the provided block locator
 // and stop hash.  It will ignore back-to-back duplicate requests.
