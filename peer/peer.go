@@ -4,11 +4,13 @@ import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
+	"fmt"
 	"github.com/btcsuite/go-socks/socks"
 	"golang.org/x/net/proxy"
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -372,10 +374,6 @@ type AddrFunc func(remoteAddr *wire.NetAddress) *wire.NetAddress
 //the netaddress.
 type HostToNetAddrFunc func(host string, port uint16, services wire.ServiceFlag) (*wire.NetAddress, error)
 
-
-
-
-
 // NOTE: The overall data flow of a peer is split into 3 goroutines.  Inbound
 // messages are read via the inHandler goroutine and generally dispatched to
 // their own handler.  For inbound data-related messages such as blocks,
@@ -463,6 +461,325 @@ type Peer struct {
 	outQuit       chan struct{}
 	quit          chan struct{}
 }
+
+//string retuns the peer address and directionality as a human-readble string
+func (p *Peer) String() string {
+	return fmt.Sprintf("%s(%s)", p.addr, directionString(p.inbound))
+}
+
+//updatelastblockheight upadates the last known blcok for the peer.
+func (p *Peer) UpdateLastBlockHeight(newHeight int32) {
+	p.statsMtx.Lock()
+	log.Tracef("updating last block height of peer %v from %v to %v", p.addr, p.lastBlock, newHeight)
+	p.lastBlock = newHeight
+	p.statsMtx.Unlock()
+}
+
+//updateslastannouncemedblock updates meta_data about the last block hash this
+//peer is known to have annouced.
+
+func (p *Peer) UpdateLastAnnouceBlock(blkHash *chainhash.Hash) {
+	log.Tracef("updating last blk for peer %v,%v", p.addr, blkHash)
+
+	p.statsMtx.Lock()
+	p.lastAnnouncedBlock = blkHash
+	p.statsMtx.Unlock()
+
+}
+
+//addknowninvetnro adds the passed inventroy to the cache of konown inbventro
+//for the peer.
+func (p *Peer) AddKnownInventory(invVect *wire.InvVect) {
+	p.knownInventory.Add(invVect)
+
+}
+
+//startssnapshot returns a snapshot of the current peer flags and statics
+func (p *Peer) StatsSnapshot() *StartsSnap {
+	p.statsMtx.RLock()
+
+	p.flagsMtx.Lock()
+	id := p.id
+	addr := p.addr
+	userAgent := p.userAgent
+	services := p.services
+	protocolVersion := p.advertisedProtoVer
+	p.flagsMtx.Unlock()
+
+	//get a copy of all relevant flags and stats.
+	statsSnap := &StartsSnap{
+		ID:             id,
+		Addr:           addr,
+		UserAgent:      userAgent,
+		Services:       services,
+		LastSend:       p.LastSend(),
+		LastRecv:       p.LastRecv(),
+		BytesSent:      p.BytesSent(),
+		BytesRecv:      p.BytesReceived(),
+		ConnTime:       p.timeConnected,
+		TimeOffset:     p.timeOffset,
+		Version:        protocolVersion,
+		Inbound:        p.inbound,
+		StartingHeight: p.startingHeight,
+		LastBlock:      p.lastBlock,
+		LastPingNonce:  p.lastPingNonce,
+		LastPingMicros: p.lastPingMicros,
+		LastPingTime:   p.lastPingTime,
+	}
+	p.statsMtx.RUnlock()
+	return statsSnap
+}
+
+//id returns the peer id
+func (p *Peer) ID() int32 {
+	p.flagsMtx.Lock()
+	id := p.id
+	p.flagsMtx.Unlock()
+
+	return id
+}
+
+//na returns the peer network address.
+func (p *Peer) NA() *wire.NetAddress {
+	p.flagsMtx.Lock()
+	na := p.na
+	p.flagsMtx.Unlock()
+
+	return na
+}
+
+//addr returns the peer address
+func (p *Peer) Addr() string {
+	//the address does not change after initialization .therefore it is
+	//not protected by a mutex
+	return p.addr
+}
+
+//inbound returns whether the peer is inbound
+func (p *Peer) Inbound() bool {
+	return p.inbound
+}
+// Services returns the services flag of the remote peer.
+//
+// This function is safe for concurrent access.
+func (p *Peer) Services() wire.ServiceFlag {
+	p.flagsMtx.Lock()
+	services := p.services
+	p.flagsMtx.Unlock()
+
+	return services
+}
+
+// UserAgent returns the user agent of the remote peer.
+//
+// This function is safe for concurrent access.
+func (p *Peer) UserAgent() string {
+	p.flagsMtx.Lock()
+	userAgent := p.userAgent
+	p.flagsMtx.Unlock()
+
+	return userAgent
+}
+
+// LastAnnouncedBlock returns the last announced block of the remote peer.
+//
+// This function is safe for concurrent access.
+func (p *Peer) LastAnnouncedBlock() *chainhash.Hash {
+	p.statsMtx.RLock()
+	lastAnnouncedBlock := p.lastAnnouncedBlock
+	p.statsMtx.RUnlock()
+
+	return lastAnnouncedBlock
+}
+
+// LastPingNonce returns the last ping nonce of the remote peer.
+//
+// This function is safe for concurrent access.
+func (p *Peer) LastPingNonce() uint64 {
+	p.statsMtx.RLock()
+	lastPingNonce := p.lastPingNonce
+	p.statsMtx.RUnlock()
+
+	return lastPingNonce
+}
+
+// LastPingTime returns the last ping time of the remote peer.
+//
+// This function is safe for concurrent access.
+func (p *Peer) LastPingTime() time.Time {
+	p.statsMtx.RLock()
+	lastPingTime := p.lastPingTime
+	p.statsMtx.RUnlock()
+
+	return lastPingTime
+}
+
+// LastPingMicros returns the last ping micros of the remote peer.
+//
+// This function is safe for concurrent access.
+func (p *Peer) LastPingMicros() int64 {
+	p.statsMtx.RLock()
+	lastPingMicros := p.lastPingMicros
+	p.statsMtx.RUnlock()
+
+	return lastPingMicros
+}
+
+// VersionKnown returns the whether or not the version of a peer is known
+// locally.
+//
+// This function is safe for concurrent access.
+func (p *Peer) VersionKnown() bool {
+	p.flagsMtx.Lock()
+	versionKnown := p.versionKnown
+	p.flagsMtx.Unlock()
+
+	return versionKnown
+}
+
+// VerAckReceived returns whether or not a verack message was received by the
+// peer.
+//
+// This function is safe for concurrent access.
+func (p *Peer) VerAckReceived() bool {
+	p.flagsMtx.Lock()
+	verAckReceived := p.verAckReceived
+	p.flagsMtx.Unlock()
+
+	return verAckReceived
+}
+
+// ProtocolVersion returns the negotiated peer protocol version.
+//
+// This function is safe for concurrent access.
+func (p *Peer) ProtocolVersion() uint32 {
+	p.flagsMtx.Lock()
+	protocolVersion := p.protocolVersion
+	p.flagsMtx.Unlock()
+
+	return protocolVersion
+}
+
+// LastBlock returns the last block of the peer.
+//
+// This function is safe for concurrent access.
+func (p *Peer) LastBlock() int32 {
+	p.statsMtx.RLock()
+	lastBlock := p.lastBlock
+	p.statsMtx.RUnlock()
+
+	return lastBlock
+}
+
+// LastSend returns the last send time of the peer.
+//
+// This function is safe for concurrent access.
+func (p *Peer) LastSend() time.Time {
+	return time.Unix(atomic.LoadInt64(&p.lastSend), 0)
+}
+
+// LastRecv returns the last recv time of the peer.
+//
+// This function is safe for concurrent access.
+func (p *Peer) LastRecv() time.Time {
+	return time.Unix(atomic.LoadInt64(&p.lastRecv), 0)
+}
+
+// LocalAddr returns the local address of the connection.
+//
+// This function is safe fo concurrent access.
+func (p *Peer) LocalAddr() net.Addr {
+	var localAddr net.Addr
+	if atomic.LoadInt32(&p.connected) != 0 {
+		localAddr = p.conn.LocalAddr()
+	}
+	return localAddr
+}
+
+// BytesSent returns the total number of bytes sent by the peer.
+//
+// This function is safe for concurrent access.
+func (p *Peer) BytesSent() uint64 {
+	return atomic.LoadUint64(&p.bytesSent)
+}
+
+// BytesReceived returns the total number of bytes received by the peer.
+//
+// This function is safe for concurrent access.
+func (p *Peer) BytesReceived() uint64 {
+	return atomic.LoadUint64(&p.bytesReceived)
+}
+
+// TimeConnected returns the time at which the peer connected.
+//
+// This function is safe for concurrent access.
+func (p *Peer) TimeConnected() time.Time {
+	p.statsMtx.RLock()
+	timeConnected := p.timeConnected
+	p.statsMtx.RUnlock()
+
+	return timeConnected
+}
+
+
+// TimeOffset returns the number of seconds the local time was offset from the
+// time the peer reported during the initial negotiation phase.  Negative values
+// indicate the remote peer's time is before the local time.
+//
+// This function is safe for concurrent access.
+func (p *Peer) TimeOffset() int64 {
+	p.statsMtx.RLock()
+	timeOffset := p.timeOffset
+	p.statsMtx.RUnlock()
+
+	return timeOffset
+}
+
+// StartingHeight returns the last known height the peer reported during the
+// initial negotiation phase.
+//
+// This function is safe for concurrent access.
+func (p *Peer) StartingHeight() int32 {
+	p.statsMtx.RLock()
+	startingHeight := p.startingHeight
+	p.statsMtx.RUnlock()
+
+	return startingHeight
+}
+
+// WantsHeaders returns if the peer wants header messages instead of
+// inventory vectors for blocks.
+//
+// This function is safe for concurrent access.
+func (p *Peer) WantsHeaders() bool {
+	p.flagsMtx.Lock()
+	sendHeadersPreferred := p.sendHeadersPreferred
+	p.flagsMtx.Unlock()
+
+	return sendHeadersPreferred
+}
+
+// IsWitnessEnabled returns true if the peer has signalled that it supports
+// segregated witness.
+//
+// This function is safe for concurrent access.
+func (p *Peer) IsWitnessEnabled() bool {
+	p.flagsMtx.Lock()
+	witnessEnabled := p.witnessEnabled
+	p.flagsMtx.Unlock()
+
+	return witnessEnabled
+}
+
+
+
+
+
+
+
+
+
+
 
 
 
