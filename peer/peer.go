@@ -1,17 +1,21 @@
 package peer
 
 import (
+	"BtcoinProject/blockchain"
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
 	"fmt"
 	"github.com/btcsuite/go-socks/socks"
 	"golang.org/x/net/proxy"
+	"math/rand"
 	"net"
+	"os/exec"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+
 )
 
 const (
@@ -559,6 +563,7 @@ func (p *Peer) Addr() string {
 func (p *Peer) Inbound() bool {
 	return p.inbound
 }
+
 // Services returns the services flag of the remote peer.
 //
 // This function is safe for concurrent access.
@@ -721,7 +726,6 @@ func (p *Peer) TimeConnected() time.Time {
 	return timeConnected
 }
 
-
 // TimeOffset returns the number of seconds the local time was offset from the
 // time the peer reported during the initial negotiation phase.  Negative values
 // indicate the remote peer's time is before the local time.
@@ -771,45 +775,64 @@ func (p *Peer) IsWitnessEnabled() bool {
 	return witnessEnabled
 }
 
+//pushaddrmsg sends an addr messge to the connected peer using the provied
+//address. this function is useful over manually sending the message via
+//queuemessage since it atuomaticllly limits the address to the maximum
+//number allowed by the message and randomizes the chosen address when
+//there are too many. it return the address that were actully sent and
+//no message will be sent if there are no entries in the porvided address
+//sliece.
+func (p *Peer) PushAddrMsg(address []*wire.NetAddress) ([]*wire.NetAddress, error) {
+	addressCount := len(address)
 
+	//nothing to send
+	if addressCount == 0 {
+		return nil, nil
+	}
 
+	msg := wire.NewMsgAddr()
+	msg.AddrList = make([]*wire.NetAddress, addressCount)
+	copy(msg.AddrList, address)
 
+	//randomize the address sent if there are more than the maximum assloed.
+	if addressCount > wire.MaxAddrPerMsg {
+		//shuffle the address list
+		for i := 0; i < wire.MaxInvPerMsg; i++ {
+			j := i + rand.Intn(addressCount-1)
+			msg.AddrList[i], msg.AddrList[j] = msg.AddrList[j], msg.AddrList[i]
+		}
 
+		//truncate it to the maximum size
+		msg.AddrList = msg.AddrList[:wire.MaxInvPerMsg]
+	}
 
+	p.QueueMessage(msg, nil)
+	return msg.AddrList, nil
+}
 
-
-
-
-
-
-
-
-// PushGetBlocksMsg sends a getblocks message for the provided block locator
-// and stop hash.  It will ignore back-to-back duplicate requests.
-//
-// This function is safe for concurrent access.
+//pushgetblockmsg sends a getblocks message for teh provided block
+//locator and stop hash. it will ingnore back-to-back duplicate requests.
 func (p *Peer) PushGetBlocksMsg(locator blockchain.BlockLocator, stopHash *chainhash.Hash) error {
-	// Extract the begin hash from the block locator, if one was specified,
-	// to use for filtering duplicate getblocks requests.
+	//extract the begin hash from the block loactor,if one was specified .
+	//to use for filtering duplicate getblocks requests
 	var beginHash *chainhash.Hash
 	if len(locator) > 0 {
 		beginHash = locator[0]
 	}
 
-	// Filter duplicate getblocks requests.
+	//fileter duplicate getblocks requests
 	p.prevGetBlocksMtx.Lock()
 	isDuplicate := p.prevGetBlocksStop != nil && p.prevGetBlocksBegin != nil &&
-		beginHash != nil && stopHash.IsEqual(p.prevGetBlocksStop) &&
-		beginHash.IsEqual(p.prevGetBlocksBegin)
+		beginHash != nil && stopHash.IsEqual(p.prevGetBlocksStop) && beginHash.IsEqual(p.prevGetBlocksBegin)
 	p.prevGetBlocksMtx.Unlock()
 
 	if isDuplicate {
-		log.Tracef("Filtering duplicate [getblocks] with begin "+
-			"hash %v, stop hash %v", beginHash, stopHash)
+		log.Tracef("filtering duplicate [getblocks]with begin "+
+			"hash %v,stop hash %v", beginHash, stopHash)
 		return nil
 	}
 
-	// Construct the getblocks request and queue it to be sent.
+	//construct the getblocks request and quenu it to be sent.
 	msg := wire.NewMsgGetBlocks(stopHash)
 	for _, hash := range locator {
 		err := msg.AddBlockLocatorHash(hash)
@@ -817,13 +840,21 @@ func (p *Peer) PushGetBlocksMsg(locator blockchain.BlockLocator, stopHash *chain
 			return err
 		}
 	}
+
 	p.QueueMessage(msg, nil)
 
-	// Update the previous getblocks request information for filtering
-	// duplicates.
 	p.prevGetBlocksMtx.Lock()
 	p.prevGetBlocksBegin = beginHash
 	p.prevGetBlocksStop = stopHash
 	p.prevGetBlocksMtx.Unlock()
 	return nil
+
 }
+
+
+
+
+
+
+
+

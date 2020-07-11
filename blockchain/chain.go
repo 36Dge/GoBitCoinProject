@@ -27,6 +27,8 @@ type BestState struct {
 	MedianTime  time.Time      // 根据calcpastmediantime确定的中间时间
 }
 
+type BlockLocator []*chainhash.Hash
+
 //区块链提供使用比特币区块链的功能
 //它包括拒绝重复块，确保块等功能
 //遵循所有规则，孤立处理，检查点处理和最佳链
