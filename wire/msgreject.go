@@ -1,6 +1,10 @@
 package wire
 
-import "fmt"
+import (
+	"BtcoinProject/chaincfg/chainhash"
+	"fmt"
+	"io"
+)
 
 //rejectcode表示一个数值，远程对等机通过该数值表示
 //拒绝邮件的原因。
@@ -61,4 +65,142 @@ type MsgReject struct {
 	Hash chainhash.Hash
 }
 
-// to do
+//btcode decodes r using the bitcoin protocol encoding into the recieiver.
+//this is part of the message interface implementation.
+func (msg *MsgReject) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error {
+
+	if pver < RejectVersion {
+		str := fmt.Sprintf("reject message invalid for protocol "+
+			"version %d", pver)
+
+		return messageError("msgreject.btcdecode", str)
+	}
+
+	//command that was rejected
+	cmd, err := ReadVarString(r, pver)
+	if err != nil {
+		return err
+	}
+	msg.Cmd = cmd
+
+	//code indicating why the command was rejected .
+	err = readElement(r, &msg.Code)
+	if err != nil {
+		return err
+	}
+
+	//human readable string with specific details (over and above the )
+	//reject code above about why the command was rejected.
+	reason, err := ReadVarString(r, pver)
+	if err != nil {
+		return err
+	}
+
+	msg.Reason = reason
+
+	//cmdblock and cmdtx message have an additional hash field that
+	//identifies the specific block or transaction
+	if msg.Cmd == CmdBlock || msg.Cmd == CmdTx {
+		err := readElement(r, &msg.Hash)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+
+}
+
+//btcencode encodes the receiver to w using the bitcoin portocol encdding
+//this is part of the meesage interface implementaion.
+func (msg *MsgReject) BtcEncode(w io.Writer,pver uint32,enc MessageEncoding) error{
+	if pver < RejectVersion{
+		str := fmt.Sprintf("reject messge invalid for protocol"+
+			"version %d",pver)
+		return messageError("msgreject.btcencode",str)
+	}
+
+	//command that was rejected.
+	err := WriteVarString(w,pver,msg.Cmd)
+	if err != nil{
+		return err
+	}
+
+	//code indicating why the command was rejected .
+	err = writeElement(w,msg.Code)
+	if err != nil{
+		return err
+	}
+
+
+	//human readable string with specific details(over and above the reject
+	//code above)about why the command was rejected.
+	err = WriteVarString(w,pver,msg.Reason)
+	if err != nil{
+		return err
+	}
+
+
+	//cmdblock and cmdtx message have an additional hash field that
+	//indetifies the specific block or transacion.
+	if msg.Cmd == CmdBlock || msg.Cmd == CmdTx{
+		err := writeElement(w,&msg.Hash)
+		if err != nil{
+			return err
+		}
+	}
+
+	return nil
+
+
+}
+
+
+
+//command returns the protocol command string for the message .this is part of
+//of the mesage interface implementation.
+func (msg *MsgReject) Command() string{
+	return CmdReject
+}
+
+//maxpayloadlength returns the maximum length the payload can be for the receiver
+//this is part of the message interface implmentation.
+func (msg *MsgReject) MaxPayloadLength(pver uint32)uint32 {
+	plen := uint32(0)
+	//the reject message did not exist before protocol version
+	//rejectversion.
+	if pver >= RejectVersion{
+		plen = MaxMessagePayload
+	}
+
+	return plen
+}
+
+//newmsgreject returns a new bitcoin reject message that coforms to the
+//message interface .see msgreject for details.
+func NewMsgReject(command string, code RejectCode, reason string) *MsgReject {
+
+	return &MsgReject{
+		Cmd:    command,
+		Code:   code,
+		Reason: reason,
+	}
+}
+
+//over
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
