@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/go-socks/socks"
 	"github.com/davecgh/go-spew/spew"
 	"golang.org/x/net/proxy"
+	"io"
 	"math/rand"
 	"net"
 	"os/exec"
@@ -926,13 +927,14 @@ func (p *Peer) PushRejectMsg(command string, code wire.RejectCode, reason string
 	<-doneChan
 
 }
+
 //handlepingmsg is invoked when p peer receives a ping bitcion message
 //for recent clients (protocol version > bip0031version)it replies with
 //a pong message,for older clients ,it does nothing and anything other
 //than failure is considerd a successful ping
 func (p *Peer) handlePingMsg(msg *wire.MsgPing) {
 	//only reply with pong if the message is from a new enough client.
-	if p.ProtocolVersion() > wire.BIP0031Version{
+	if p.ProtocolVersion() > wire.BIP0031Version {
 		// Include nonce from ping so pong can be identified.
 		p.QueueMessage(wire.NewMsgPong(msg.Nonce), nil)
 	}
@@ -995,14 +997,6 @@ func (p *Peer) readMessage(encoding wire.MessageEncoding) (wire.Message, []byte,
 
 	return msg, buf, nil
 }
-
-
-
-
-
-
-
-
 
 //writemessage sends a bitcoin message to the peer with logging
 func (p *Peer) writeMessage(msg wire.Message, enc wire.MessageEncoding) error {
@@ -1074,4 +1068,64 @@ func (p *Peer) isAllowedReadError(err error) bool {
 	//allowed if all checks passed.
 	return true
 
+}
+
+// shouldHandleReadError returns whether or not the passed error, which is
+// expected to have come from reading from the remote peer in the inHandler,
+// should be logged and responded to with a reject message.
+func (p *Peer) shouldHandleReadError(err error) bool {
+	// No logging or reject message when the peer is being forcibly
+	// disconnected.
+	if atomic.LoadInt32(&p.disconnect) != 0 {
+		return false
+	}
+
+	// No logging or reject message when the remote peer has been
+	// disconnected.
+	if err == io.EOF {
+		return false
+	}
+	if opErr, ok := err.(*net.OpError); ok && !opErr.Temporary() {
+		return false
+	}
+
+	return true
+}
+
+//maybeadddeadline potentially adds a deadline for the appropriate expected
+//response for the passed wire protocol command to the pending responses map
+func (p *Peer) maybeAddDeadline(pendingResponses map[string]time.Time, msgCmd string) {
+	//setup a dealine for each message being sent that expects a response.
+
+	//note:pings are intentionally igmored here since they are typcicaly
+	//sent asynchroonouly and as a result of a long backlock of message.
+	//such as is typical in the case of initial block download. the respose
+	//won be received in time.
+	deadline := time.Now().Add(stallReponseTimeout)
+	// Expects a verack message.
+	pendingResponses[wire.CmdVerAck] = deadline
+	switch msgCmd {
+
+	case wire.CmdMemPool:
+		// Expects an inv message.
+		pendingResponses[wire.CmdInv] = deadline
+
+	case wire.CmdGetBlocks:
+		// Expects an inv message.
+		pendingResponses[wire.CmdInv] = deadline
+
+	case wire.CmdGetData:
+		// Expects a block, merkleblock, tx, or notfound message.
+		pendingResponses[wire.CmdBlock] = deadline
+		pendingResponses[wire.CmdMerkleBlock] = deadline
+		pendingResponses[wire.CmdTx] = deadline
+		pendingResponses[wire.CmdNotFound] = deadline
+
+	case wire.CmdGetHeaders:
+		// Expects a headers message.  Use a longer deadline since it
+		// can take a while for the remote peer to load all of the
+		// headers.
+		deadline = time.Now().Add(stallResponseTimeout * 3)
+		pendingResponses[wire.CmdHeaders] = deadline
+	}
 }
