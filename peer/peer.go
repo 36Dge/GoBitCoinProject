@@ -5,8 +5,10 @@ import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
+	"bytes"
 	"fmt"
 	"github.com/btcsuite/go-socks/socks"
+	"github.com/davecgh/go-spew/spew"
 	"golang.org/x/net/proxy"
 	"math/rand"
 	"net"
@@ -15,7 +17,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
 )
 
 const (
@@ -848,7 +849,151 @@ func (p *Peer) PushGetBlocksMsg(locator blockchain.BlockLocator, stopHash *chain
 	p.prevGetBlocksStop = stopHash
 	p.prevGetBlocksMtx.Unlock()
 	return nil
+}
 
+//pushgetheadersmsg sends a getblocks message for the provided block locator
+//and stop hash.it will innore back-to-back duplicate requests
+func (p *Peer) PushGetHeaderMsg(locator blockchain.BlockLocator, stopHash *chainhash.Hash) error {
+	//extract the begin hash from the block locator ,if one was specified.
+	//to use for filtering duplicate getheaders requests.
+	var beginHash *chainhash.Hash
+	if len(locator) > 0 {
+		beginHash = locator[0]
+	}
+
+	//filter dupliacte getheaders requests.
+	p.prevGetBlocksMtx.Lock()
+	isDuplicate := p.prevGetHdrsStop != nil && p.prevGetHdrsBegin != nil &&
+		beginHash != nil && stopHash.IsEqual(p.prevGetHdrsStop) && beginHash.IsEqual(p.prevGetHdrsBegin)
+
+	if isDuplicate {
+		log.Tracef("filtering duplicate [getheaders] with begin hash %v", beginHash)
+		return nil
+	}
+
+	//construct the getheaders request and queue it to be sent.
+	msg := wire.NewMsgGetHeaders()
+	msg.HashStop = *stopHash
+	for _, hash := range locator {
+		err := msg.AddBlockLocatorHash(hash)
+		if err != nil {
+			return err
+		}
+	}
+
+	p.QueueMessage(msg, nil)
+
+	//update the previous getheaders request information for filterling duplicates.
+	p.prevGetHdrsMtx.Lock()
+	p.prevGetHdrsBegin = beginHash
+	p.prevGetHdrsStop = stopHash
+	p.prevGetHdrsMtx.Unlock()
+	return nil
+
+}
+
+//pushrejectmsg sends a reject message for the provided command ,reject code.
+//reject reason,and hash,the hash will only be used when the command is a tx
+//or block and should be nil in other cases.the wait paremeter will cause the
+//fucction to block until the reject message has actually been sent.
+func (p *Peer) PushRejectMsg(command string, code wire.RejectCode, reason string, hash *chainhash.Hash, wait bool) {
+
+	//do not bother sending the reject message if the protocol version is too low.
+	if p.VersionKnown() && p.ProtocolVersion() < wire.RejectVersion {
+		return
+	}
+
+	msg := wire.NewMsgReject(command, code, reason)
+	if command == wire.CmdTx || command == wire.CmdBlock {
+		if hash == nil {
+			log.Warnf("sending a reject message for command "+
+				"type %v which should have specified a hash"+
+				"but does not", command)
+			hash = &zeroHash
+		}
+		msg.Hash = *hash
+	}
+
+	//send the message without waiting if the caller has not requested
+	if !wait {
+		p.QueueMessage(msg, nil)
+		return
+	}
+
+	//send the message and block until it has sent before returning
+	doneChan := make(chan struct{}, 1)
+	p.QueueMessage(msg, doneChan)
+	<-doneChan
+
+}
+//handlepingmsg is invoked when p peer receives a ping bitcion message
+//for recent clients (protocol version > bip0031version)it replies with
+//a pong message,for older clients ,it does nothing and anything other
+//than failure is considerd a successful ping
+func (p *Peer) handlePingMsg(msg *wire.MsgPing) {
+	//only reply with pong if the message is from a new enough client.
+	if p.ProtocolVersion() > wire.BIP0031Version{
+		// Include nonce from ping so pong can be identified.
+		p.QueueMessage(wire.NewMsgPong(msg.Nonce), nil)
+	}
+
+}
+
+// handlePongMsg is invoked when a peer receives a pong bitcoin message.  It
+// updates the ping statistics as required for recent clients (protocol
+// version > BIP0031Version).  There is no effect for older clients or when a
+// ping was not previously sent.
+func (p *Peer) handlePongMsg(msg *wire.MsgPong) {
+	// Arguably we could use a buffered channel here sending data
+	// in a fifo manner whenever we send a ping, or a list keeping track of
+	// the times of each ping. For now we just make a best effort and
+	// only record stats if it was for the last ping sent. Any preceding
+	// and overlapping pings will be ignored. It is unlikely to occur
+	// without large usage of the ping rpc call since we ping infrequently
+	// enough that if they overlap we would have timed out the peer.
+	if p.ProtocolVersion() > wire.BIP0031Version {
+		p.statsMtx.Lock()
+		if p.lastPingNonce != 0 && msg.Nonce == p.lastPingNonce {
+			p.lastPingMicros = time.Since(p.lastPingTime).Nanoseconds()
+			p.lastPingMicros /= 1000 // convert to usec.
+			p.lastPingNonce = 0
+		}
+		p.statsMtx.Unlock()
+	}
+}
+
+//readmessage reads next bitcoin message from the peer with logging
+
+func (p *Peer) readMessage(encoding wire.MessageEncoding) (wire.Message, []byte, error) {
+	n, msg, buf, err := wire.ReadMessageWithEncodingN(p.conn,
+		p.ProtocolVersion(), p.cfg.ChainParams.Net, encoding)
+	atomic.AddUint64(&p.bytesReceived, uint64(n))
+	if p.cfg.Listeners.OnRead != nil {
+		p.cfg.Listeners.OnRead(p, n, msg, err)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Use closures to log expensive operations so they are only run when
+	// the logging level requires it.
+	log.Debugf("%v", newLogClosure(func() string {
+		// Debug summary of message.
+		summary := messageSummary(msg)
+		if len(summary) > 0 {
+			summary = " (" + summary + ")"
+		}
+		return fmt.Sprintf("Received %v%s from %s",
+			msg.Command(), summary, p)
+	}))
+	log.Tracef("%v", newLogClosure(func() string {
+		return spew.Sdump(msg)
+	}))
+	log.Tracef("%v", newLogClosure(func() string {
+		return spew.Sdump(buf)
+	}))
+
+	return msg, buf, nil
 }
 
 
@@ -858,3 +1003,75 @@ func (p *Peer) PushGetBlocksMsg(locator blockchain.BlockLocator, stopHash *chain
 
 
 
+
+//writemessage sends a bitcoin message to the peer with logging
+func (p *Peer) writeMessage(msg wire.Message, enc wire.MessageEncoding) error {
+	//do not anything if we are disconnecting .
+	if atomic.LoadInt32((&p.disconnect)) != 0 {
+		return nil
+	}
+
+	//use closures to log expensive operations so they are only run when
+	//the logging level requires it.
+	log.Debugf("%v", newLogClosure(func() string {
+		//debug summary of message
+		summary := messageSummary(msg)
+		if len(summary) > 0 {
+			summary = "(" + summary + ")"
+		}
+		return fmt.Sprintf("sending %v%s to %s", msg.Command(), summary, p)
+	}))
+
+	log.Tracef("%v", newLogClosure(func() string {
+		return spew.Sdump(msg)
+	}))
+
+	log.Tracef("%v", newLogClosure(func() string {
+		var buf bytes.Buffer
+		_, err := wire.WriteMessageWithEncodingN(&buf, msg, p.ProtocolVersion(), p.cfg.ChainParams.Net, enc)
+		if err != nil {
+			return err.Error()
+		}
+		return spew.Sdump(buf.Bytes())
+	}))
+
+	//write the message to the peer
+	n, err := wire.WriteMessageWithEncodingN(p.conn, msg, p.ProtocolVersion(), p.cfg.ChainParams.Net, enc)
+	atomic.AddUint64(&p.bytesSent, uint64(n))
+	if p.cfg.Listeners.OnWrite != nil {
+		p.cfg.Listeners.OnWrite(p, n, msg, err)
+	}
+
+	return err
+
+}
+
+//isallowedreadrerror returns whether or not passed error is allowed without
+//disconnecting the peer.in particular. regression tests need to be allowed
+//to send malformed message without the peer being disconnected.
+func (p *Peer) isAllowedReadError(err error) bool {
+	//only allow read errors in regression test mode.
+	if p.cfg.ChainParams.Net != wire.TestNet {
+		return false
+	}
+
+	//do not allow the error if it is not specifically a malformed message error.
+	if _, ok := err.(*wire.MessageError); !ok {
+		return false
+	}
+
+	//do not allow the error if it is not coming from localhost or the
+	//hostname can not be determined for some reason.
+	host, _, err := net.SplitHostPort(p.addr)
+	if err != nil {
+		return false
+	}
+
+	if host != "127.0.0.1" && host != "localhost" {
+		return false
+	}
+
+	//allowed if all checks passed.
+	return true
+
+}
