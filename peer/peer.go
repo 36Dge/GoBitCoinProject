@@ -6,6 +6,7 @@ import (
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
 	"bytes"
+	"context"
 	"fmt"
 	"github.com/btcsuite/go-socks/socks"
 	"github.com/davecgh/go-spew/spew"
@@ -1129,3 +1130,158 @@ func (p *Peer) maybeAddDeadline(pendingResponses map[string]time.Time, msgCmd st
 		pendingResponses[wire.CmdHeaders] = deadline
 	}
 }
+
+//stallhandler handled stall detection for the peer .this entails keeping
+//track of expected responses and assingning them deadline while accouting
+//for the time spnet in callbacks ,it must be run as a goroutine
+func (p *Peer) stallHandler() {
+	//these variable are used to adjust the deadline times forward by the
+	//time it takes callbacks to execute. this is done because new message
+	//are not read until the previous one is finished processing which includes
+	//callbacks .so the deadline for receiving a response for a given messge
+	//must account for the processing time as well
+	var handlerActive bool
+	var handlersStartTime time.Time
+	var deadlineOffset time.Duration
+
+	//pendingresponses tracks the expected response deadline times
+	pendingResponses := make(map[string]time.Time)
+
+	//stallticker is used to periodically check pending responsed that
+	//have exceded the expected deadline and disconnect the peer due to
+	//stalling
+	stallTicker := time.NewTimer(stallTrickTinterval)
+	defer stallTicker.Stop()
+
+	//isstopped is used to detect when both ipput and output handler
+	//goroutine are done.
+	var ioStopped bool
+out:
+	for {
+		select {
+		case msg := <-p.stallControl:
+			switch msg.command {
+
+				//add a deadline for the expected response
+				//message if needed.
+				p.maybeAddDeadline(pendingResponses, msg.message.Command())
+			case sccReceiveMessage:
+				//remove receied message from the ecpeceed response map.
+				//since certain commands expect one of a group of response.
+				//remove everything in the expected group accordingly.
+				switch msgCmd := msg.message.Command(); msgCmd {
+				case wire.CmdBlock:
+					fallthrough
+				case wire.CmdMerkleBlock:
+					fallthrough
+				case wire.CmdTx:
+					fallthrough
+				case wire.CmdNotFound:
+					delete(pendingResponses, wire.CmdBlock)
+					delete(pendingResponses, wire.CmdMerkleBlock)
+					delete(pendingResponses, wire.CmdTx)
+					delete(pendingResponses, wire.CmdNotFound)
+
+				default:
+					delete(pendingResponses, msgCmd)
+
+				}
+
+			case sccHandlerStart:
+				//warn on unbalanced callback signaling
+				if handlerActive {
+					log.Warn("reveived handler start" +
+						"control command while a " +
+						"handler is already active")
+					continue
+				}
+
+				handlerActive = true
+				handlersStartTime = time.Now()
+
+			case sccHandlerDone:
+				//warn on unbalanced callback singnaling
+				if !handlerActive {
+					log.Warn("received handle done" +
+						"control command when a " +
+						"handler is not already active")
+					continue
+				}
+
+				//extend active deadlines by the time it took
+				//to execute the callback.
+				duration := time.Since(handlersStartTime)
+				deadlineOffset += duration
+				handlerActive = false
+
+			default:
+				log.Warnf("unsupporeted message command %v", msg.command)
+			}
+
+		case <-stallTicker.C:
+			//calculate the offset to apply to the deadline based on how long
+			//the handlers have taken to execute since the last tick.
+			now := time.Now()
+			offset := deadlineOffset
+			if handlerActive {
+				offset += now.Sub(handlersStartTime)
+			}
+
+			//disconcet the peer if any of the pending responses
+			//do not arrive their adjusted deadline.
+			for command, deadline := range pendingResponses {
+				if now.Before(deadline.Add(offset)) {
+					continue
+				}
+
+				log.Debugf("peer %s appers to be stalled or "+
+					"missbehaving,%s timeout -- "+"disconnecting", p, command)
+				p.Disconnect
+				break
+			}
+
+			//reset the dealine offset for the next tick
+			deadlineOffset = 0
+
+		case <-p.inQuit:
+			//the stall handler can exit once both the input and output
+			//handler goroutines are done.
+			if ioStopped {
+				break out
+			}
+
+			ioStopped = true
+
+		}
+
+	}
+
+	//drwin any wait channels before going away so there is nothing left
+	//waring on this goroutine.
+cleanup:
+	for {
+		select {
+		case <-p.stallControl
+		default:
+			break cleanup
+		}
+	}
+	log.Tracef("peer stall handler done for %s", p)
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
