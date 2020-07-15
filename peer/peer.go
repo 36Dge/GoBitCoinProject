@@ -1270,18 +1270,224 @@ cleanup:
 
 }
 
+//ishandler handles all incoming message for the peer .it must be run
+//as a goroutine.
+func (p *Peer) inHandler() {
+	//the timer is stopped when a new message is received and reset after it
+	//is processed.
+	idleTimer := time.AfterFunc(idleTimeout, func() {
+		log.Warnf("peer %s no answer for %s -- disconnecting ", p, idleTimeout)
+		p.Disconnect()
+	})
 
+out:
+	for atomic.LoadInt32(&p.disconnect) == 0 {
+		//read a message and stop the idle timer as soon as the read
+		//is done the timer is reset below for the next iteration if
+		//needed.
+		rmsg, buf, err := p.readMessage(p.wireEncoding)
+		idleTimer.Stop()
+		if err != nil {
+			//in order to allow regerssion tests with malformed message
+			//do not disconnect the peer when we are in regression test
+			//and the error is one of the allowed errors.
+			if p.isAllowedReadError(err) {
+				log.Errorf("allowed test error from %s:%v", p, err)
+				continue
+			}
 
+			//only log the error and send reject message if the local peer
+			//is not forcibly disconnecting and the remote peer has not
+			//disconnected.
+			if p.shouldHandleReadError(err) {
+				errMsg := fmt.Sprintf("can not read message from %s:%v", p, err)
+				if err != io.ErrUnexpectedEOF {
+					log.Errorf(errMsg)
+				}
+				//push a reject message for the malfromed message
+				//and wait for the message to be sent before disconnceting
 
+				p.PushRejectMsg("malformed ", wire.RejectMalformed, errMsg, nil, true)
 
+			}
 
+			break out
 
+		}
+		atomic.StoreInt64(&p.lastRecv, time.Now().Unix())
+		p.stallControl <- stallControlMsg{sccReceiveMessage, rmsg}
 
+		//handle each supported message type
+		p.stallControl <- stallControlMsg{sccHandlerStart, rmsg}
+		switch msg := rmsg.(type) {
+		case *wire.MsgVersion:
+			//limit to one version message per message.
+			p.PushRejectMsg(msg.Command(), wire.RejectDuplicate,
+				"duplicate version message", nil, true)
+			break out
 
+		case *wire.MsgVerAck:
+			//limit to one verack message per peer.
+			p.PushRejectMsg(
+				msg.Command(), wire.RejectDuplicate,
+				"duplicate verack message", nil, true)
+			break out
 
+		case *wire.MsgGetAddr:
+			if p.cfg.Listeners.OnGetAddr != nil {
+				p.cfg.Listeners.OnGetAddr(p, msg)
+			}
 
+		case *wire.MsgAddr:
+			if p.cfg.Listeners.OnAddr != nil {
+				p.cfg.Listeners.OnAddr(p, msg)
+			}
 
+		case *wire.MsgPing:
+			p.handlePingMsg(msg)
+			if p.cfg.Listeners.OnPing != nil {
+				p.cfg.Listeners.OnPing(p, msg)
+			}
 
+		case *wire.MsgPong:
+			p.handlePongMsg(msg)
+			if p.cfg.Listeners.OnPong != nil {
+				p.cfg.Listeners.OnPong(p, msg)
+			}
 
+		case *wire.MsgAlert:
+			if p.cfg.Listeners.OnAlert != nil {
+				p.cfg.Listeners.OnAlert(p, msg)
+			}
+
+		case *wire.MsgMemPool:
+			if p.cfg.Listeners.OnMemPool != nil {
+				p.cfg.Listeners.OnMemPool(p, msg)
+			}
+
+		case *wire.MsgTx:
+			if p.cfg.Listeners.OnTx != nil {
+				p.cfg.Listeners.OnTx(p, msg)
+			}
+
+		case *wire.MsgBlock:
+			if p.cfg.Listeners.OnBlock != nil {
+				p.cfg.Listeners.OnBlock(p, msg, buf)
+			}
+
+		case *wire.MsgInv:
+			if p.cfg.Listeners.OnInv != nil {
+				p.cfg.Listeners.OnInv(p, msg)
+			}
+
+		case *wire.MsgHeaders:
+			if p.cfg.Listeners.OnHeaders != nil {
+				p.cfg.Listeners.OnHeaders(p, msg)
+			}
+
+		case *wire.MsgNotFound:
+			if p.cfg.Listeners.OnNotFound != nil {
+				p.cfg.Listeners.OnNotFound(p, msg)
+			}
+
+		case *wire.MsgGetData:
+			if p.cfg.Listeners.OnGetData != nil {
+				p.cfg.Listeners.OnGetData(p, msg)
+			}
+
+		case *wire.MsgGetBlocks:
+			if p.cfg.Listeners.OnGetBlocks != nil {
+				p.cfg.Listeners.OnGetBlocks(p, msg)
+			}
+
+		case *wire.MsgGetHeaders:
+			if p.cfg.Listeners.OnGetHeaders != nil {
+				p.cfg.Listeners.OnGetHeaders(p, msg)
+			}
+
+		case *wire.MsgGetCFilters:
+			if p.cfg.Listeners.OnGetCFilters != nil {
+				p.cfg.Listeners.OnGetCFilters(p, msg)
+			}
+
+		case *wire.MsgGetCFHeaders:
+			if p.cfg.Listeners.OnGetCFHeaders != nil {
+				p.cfg.Listeners.OnGetCFHeaders(p, msg)
+			}
+
+		case *wire.MsgGetCFCheckpt:
+			if p.cfg.Listeners.OnGetCFCheckpt != nil {
+				p.cfg.Listeners.OnGetCFCheckpt(p, msg)
+			}
+
+		case *wire.MsgCFilter:
+			if p.cfg.Listeners.OnCFilter != nil {
+				p.cfg.Listeners.OnCFilter(p, msg)
+			}
+
+		case *wire.MsgCFHeaders:
+			if p.cfg.Listeners.OnCFHeaders != nil {
+				p.cfg.Listeners.OnCFHeaders(p, msg)
+			}
+
+		case *wire.MsgFeeFilter:
+			if p.cfg.Listeners.OnFeeFilter != nil {
+				p.cfg.Listeners.OnFeeFilter(p, msg)
+			}
+
+		case *wire.MsgFilterAdd:
+			if p.cfg.Listeners.OnFilterAdd != nil {
+				p.cfg.Listeners.OnFilterAdd(p, msg)
+			}
+
+		case *wire.MsgFilterClear:
+			if p.cfg.Listeners.OnFilterClear != nil {
+				p.cfg.Listeners.OnFilterClear(p, msg)
+			}
+
+		case *wire.MsgFilterLoad:
+			if p.cfg.Listeners.OnFilterLoad != nil {
+				p.cfg.Listeners.OnFilterLoad(p, msg)
+			}
+
+		case *wire.MsgMerkleBlock:
+			if p.cfg.Listeners.OnMerkleBlock != nil {
+				p.cfg.Listeners.OnMerkleBlock(p, msg)
+			}
+
+		case *wire.MsgReject:
+			if p.cfg.Listeners.OnReject != nil {
+				p.cfg.Listeners.OnReject(p, msg)
+			}
+
+		case *wire.MsgSendHeaders:
+			p.flagsMtx.Lock()
+			p.sendHeadersPreferred = true
+			p.flagsMtx.Unlock()
+
+			if p.cfg.Listeners.OnSendHeaders != nil {
+				p.cfg.Listeners.OnSendHeaders(p, msg)
+			}
+
+		default:
+			log.Debugf("Received unhandled message of type %v "+
+				"from %v", rmsg.Command(), p)
+		}
+		p.stallControl <- stallControlMsg{sccHandlerDone, rmsg}
+
+		//a message was reject so reset the idle timer
+		idleTimer.Reset(idleTimeout)
+
+	}
+	//ensure the idle timer is stopped to avoid leaking the resourece
+	idleTimer.Stop()
+
+	//ensure concetion is closed.
+	p.Disconnect()
+
+	close(p.inQuit)
+	log.Tracef("peer input handler done for %s ", p)
+
+}
 
 
