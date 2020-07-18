@@ -6,11 +6,13 @@ import (
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
 	"bytes"
+	"container/list"
 	"context"
 	"fmt"
 	"github.com/btcsuite/go-socks/socks"
 	"github.com/davecgh/go-spew/spew"
 	"golang.org/x/net/proxy"
+	"golang.org/x/text/cases"
 	"io"
 	"math/rand"
 	"net"
@@ -1489,5 +1491,154 @@ out:
 	log.Tracef("peer input handler done for %s ", p)
 
 }
+
+//queuehandler handles the queuing of outgoing data for the peer .this runas
+//as a muxer for various of input so we can ensure that server and
+//peer handlers will not block on us sending a message .that data is
+//then paased on to outhandler to be actully written.
+func (p *Peer) queueHandler() {
+	pendingMsgs := list.New()
+	invSendQueue := list.New()
+	trickleTicker := time.NewTicker(p.cfg.TrickleInterval)
+	defer trickleTicker.Stop()
+
+	//we keep the waiting flag so that we know if we have a message
+	//queued to hte outhander or not .we could use the presence of a
+	//head of the list for this but we have rather racy concerns about
+	//wherther it has gotten it at cleanup time - and thus who sendd on
+	//the message. done channel .to avoid such confusion we keep a differrent
+	//flag and pendingmsgs only contains messages that we have not yet passed to
+	//outhandler.
+
+	waiting := false
+
+	//to avoid duplication below.
+
+	queuePacket := func(msg outMsg, list *list.List, waiting bool) bool {
+		if !waiting {
+			p.sendQueue <- msg
+		} else {
+			list.PushBack(msg)
+		}
+
+		//we are always wating now.
+		return true
+	}
+
+out:
+	for {
+		select {
+		case msg := <-p.outputQueue:
+			waitting = queuePacket(msg, pendingMsgs, waiting)
+
+		//this channel is notify when a message has been sent across
+		//the netword socket
+		case <-p.sendDoneQueue:
+			//no longer waiting if there are no more message
+			//in the peding message queue.
+			next := pendingMsgs.Front()
+			if next == nil {
+				waiting = false
+				continue
+			}
+
+			//notify the outhanler about the next item to
+			//asychronouly send.
+			val := pendingMsgs.Remove(next)
+			p.sendQueue <- val.(outMsg)
+
+		case iv := <-p.outputInvChan:
+			//no handshakes?they will find out soon enouth.
+			if p.VersionKnown() {
+				//if this is a new block,then we will blast it
+				//out immediately .sipping the ivv trickle queue.
+				if iv.Type == wire.InvTypeBlock || iv.Type == wire.InvTypeWitnessBlock {
+					invMsg := wire.NewMsgInvSizeHint(1)
+					invMsg.AddInvVect(iv)
+					waiting = queuePacket(outMsg{msg: invMsg}, pendingMsgs, waiting)
+				} else {
+					invSendQueue.PushBack(iv)
+				}
+
+			}
+		case <-trickleTicker.C:
+
+			//do not seding anything if we are disconneting or there
+			//is no quued inventory .
+			//version is konwn if send queue has any entires.
+			if atomic.LoadInt32(&p.disconnect) != 0 || invSendQueue.Len() == 0 {
+				continue
+			}
+
+			//create and send as many inv message as needed to drain the inentroy
+			//send queueu.
+
+			invMsg := wire.NewMsgInvSizeHint(uint(invSendQueue.Len()))
+			for e := invSendQueue.Front(); e != nil; e = invSendQueue.Front() {
+				iv := invSendQueue.Remove(e).(*wire.InvVect)
+
+				//dont send invetroy that became known after the initial check
+				if p.knownInventory.Exists(iv) {
+					continue
+				}
+
+				invMsg.AddInvVect(iv)
+				if len(invMsg.InvList) >= maxInvTrickleSize {
+					waiting = queuePacket(
+						outMsg{msg: invMsg},
+						pendingMsgs, waiting)
+					invMsg = wire.NewMsgInvSizeHint(uint(invSendQueue.Len()))
+				}
+
+				//add the inventory that is being relayed to the known invenory for
+				//for the peer.
+				p.AddKnownInventory(iv)
+
+			}
+
+			if len(invMsg.InvList) > 0 {
+				waiting = queuePacket(outMsg{msg: invMsg},
+					pendingMsgs, waiting)
+			}
+
+		case <-p.quit:
+			break out
+
+
+		}
+
+	}
+
+	//drain wany wait channels before we go away so we do not leave
+	//something waiting for us.
+	for e := pendingMsgs.Front(); e != nil; e = pendingMsgs.Front() {
+		val := pendingMsgs.Remove(e)
+		msg := val.(outMsg)
+		if msg.doneChan != nil {
+			msg.doneChan <- struct{}{}
+		}
+
+	}
+cleanup:
+
+	for {
+		select {
+		case msg := <-p.outputQueue:
+			if msg.doneChan != nil {
+				msg.doneChan <- struct{}{}
+			}
+		case <-p.outputInvChan:
+		//just drain channel
+		default:
+			break cleanup
+		}
+	}
+
+	close(p.queueQuit)
+	log.Tracef("peer queue hanler done for %s", p)
+
+}
+
+
 
 
