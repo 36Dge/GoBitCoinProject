@@ -1639,6 +1639,198 @@ cleanup:
 
 }
 
+//shouldlogwriteerror returns whether or not the passed error.which is
+//expected to have come form wirting to the remote peer in the outhandler
+//should be logged.
+func (p *Peer) shouldLogWriteError(err error) bool {
+	//no logging when the peer is being sorcibly disconnected.
+	if atomic.LoadInt32(&p.disconnect) != 0 {
+		return false
+	}
+
+	//no logging when the peer has been disconnected.
+	if err == io.EOF {
+		return false
+	}
+
+	if opErr, ok := err.(*net.OpError); ok && opErr.Temporary() {
+		return false
+	}
+
+	return true
+
+}
+
+//outhander handles all outgoing message for the peer .it must be run as
+//a goroutine ,it uses a buffered channel to serialize output message while
+//allowing the sender to continue running asynchornously
+func (p *Peer) outHandler() {
+out:
+	for {
+		select {
+		case msg := <-p.sendQueue:
+			switch m := msg.msg.(type) {
+			case *wire.MsgPing:
+				//only expects a pong message in later protocol
+				//version .also set up statistic.
+				if p.ProtocolVersion() > wire.BIP0031Version {
+					p.statsMtx.Lock()
+					p.lastPingNonce = m.Nonce
+					p.lastPingTime = time.Now()
+					p.statsMtx.Unlock()
+
+				}
+
+			}
+			p.stallControl <- stallControlMsg{sccSendMessage, msg.msg}
+
+			err := p.writeMessage(msg.msg, msg.encoding)
+			if err != nil {
+				p.Disconnect()
+				if p.shouldLogWriteError(err) {
+					log.Errorf("failed to send message to "+
+						"%s:%v", p, err)
+				}
+
+				if msg.doneChan != nil {
+					msg.doneChan <- struct{}{}
+				}
+				continue
+
+			}
+			//at this point.the message was successfully sent,so
+			//update the last send time .signal the sender of the
+			//message that it has been sent(if requireed).and sigal
+			//the send queue to the deliever the next queued message
+			atomic.StoreInt64(&p.lastSend, time.Now().Unix())
+			if msg.doneChan != nil {
+				msg.doneChan <- struct{}{}
+			}
+
+			p.sendDoneQueue <- struct{}{}
+
+		case <-p.quit:
+			break out
+
+		}
+	}
+	<-p.queueQuit
+
+	//drain any wait channels before we go away so we do not leave something
+	//waitting for us.we have waited on queuequit and thus we can be sure
+	//that we will not miss anything sent on sendqueue.
+
+cleanup:
+	for {
+		select {
+		case msg := <-p.sendQueue:
+			if msg.doneChan != nil {
+				msg.doneChan <- struct{}{}
+			}
+		//no need to send on sendDoneQueue since queueHandler
+		//has been waited on and aleady exited
+		default:
+			break cleanup
 
 
+		}
+	}
 
+	close(p.outQuit)
+	log.Tracef("peer output handler done for %s", p)
+}
+
+//pinghandler periodically pings the peer .it must be run as a goroutine
+func (p *Peer) pingHandler() {
+	pingTicker := time.NewTicker(pingInterval)
+	defer pingTicker.Stop()
+
+out:
+	for {
+		select {
+		case <-pingTicker.C:
+			nonce, err := wire.RandomUint64()
+			if err != nil {
+				log.Errorf("not sending ping to %s:%v", p, err)
+				continue
+			}
+			p.QueueMessage(wire.NewMsgPing(nonce), nil)
+		case <-p.quit:
+			break out
+
+		}
+	}
+
+}
+
+//queuemessage adds the passed bitcoin message to the peer send queue.
+//this function is safe for concurent access
+func (p *Peer) QueueMessage(msg wire.Message, doneChan chan<- struct{}) {
+	p.QueueMessageWithEncoding(msg, doneChan, wire.BaseEncoding)
+}
+
+//queuemessagewithencoding adds the passed bitcoin message to the peer send
+//queue this function is identical to queuemessage however it allows the caller
+//to specify the wire encoding type that should be uesed when encoding /decoding
+//blcoks and trancactions.
+
+func (p *Peer) QueueMessageWithEncoding(msg wire.Message, doneChan chan<- struct{}, encoding wire.MessageEncoding) {
+
+	//avoid risk of deadlock if goroutine already exited .the goroutine
+	//we will be sending to hangs around until it konow for a fact that
+	//it is marked as disconnected and then it drawn the channels
+	if !p.Connected() {
+		if doneChan != nil {
+			go func() {
+				doneChan <- struct{}{}
+			}()
+		}
+		return
+	}
+
+	p.outputQueue <- outMsg{msg: msg, encoding: encoding, doneChan: doneChan}
+
+}
+
+//queeuinventroy adds the passed inventory to the inventory send queue which
+//might not be sent right away.rather it is tricked to the peer in batchs.
+//invetnor that the peer is already known to have is ignored.
+func (p *Peer) QueueInventory(invVect *wire.InvVect) {
+	//do not add the inventory to the send queue if the peer is already
+	//known to have it.
+	if p.knownInventory.Exists(invVect) {
+		return
+	}
+
+	//avodi risk of deadlock if goroutine already exited. the goroutine
+	//we will sending to hangs around until it konws for a fact that
+	//it is marked as dicconnected and then it drains the channels.
+	if !p.Connected() {
+		return
+	}
+
+	p.outputInvChan <- invVect
+
+}
+
+//connected returns whether or not the peer is currently connceted.
+//this function is safe for concurrent access.
+func (p *Peer) Connected() bool {
+	return atomic.LoadInt32(&p.connected) != 0 && atomic.LoadInt32(&p.disconnect) == 0
+}
+
+//disconnect disconnects the peer closing the connection .calling this funcction
+//when the peer is already disconnected in the process of disconnecting will have
+//no effect.
+func (p *Peer) Disconnect() {
+	if atomic.AddInt32(&p.disconnect, 1) != 1 {
+		return
+	}
+
+	log.Tracef("disconecting %s", p)
+	if atomic.LoadInt32(&p.connected) != 0 {
+		p.conn.Close()
+	}
+
+	close(p.quit)
+}

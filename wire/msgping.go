@@ -73,7 +73,9 @@ func (msg *MsgPing) MaxPayloadLength(pver uint32) uint32 {
 //nesmsgping returns a new bitcoin ping message that conforms to the message
 //interface see msgping for details.
 func NewMsgPing(nonce uint64) *MsgPing {
-	return &MsgPing{Nonce: nonce,}
+	return &MsgPing{
+		Nonce: nonce,
+	}
 }
 
 //over
