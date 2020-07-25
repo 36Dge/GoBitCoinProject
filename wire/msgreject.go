@@ -65,6 +65,7 @@ type MsgReject struct {
 	Hash chainhash.Hash
 }
 
+
 //btcode decodes r using the bitcoin protocol encoding into the recieiver.
 //this is part of the message interface implementation.
 func (msg *MsgReject) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) error {

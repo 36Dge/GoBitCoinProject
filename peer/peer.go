@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"container/list"
 	"context"
+	"errors"
 	"fmt"
 	"github.com/btcsuite/go-socks/socks"
 	"github.com/davecgh/go-spew/spew"
@@ -1833,4 +1834,96 @@ func (p *Peer) Disconnect() {
 	}
 
 	close(p.quit)
+}
+
+//readremoteversionmsg wait for the next message to arrive from
+//the remote peer.if the next message is not a version message or
+//the version is not acceptable then return an error.
+func (p *Peer) readRemoteVersionMsg() error {
+	//read their version message
+	remoteMsg, _, err := p.readMessage(wire.LatestEncoding)
+	if err != nil {
+		return err
+	}
+
+	//notify and disconnect clients if the first message is not
+	//a version message.
+	msg, ok := remoteMsg.(*wire.MsgVersion)
+	if !ok {
+		reason := "a version message must precede all others"
+		rejectMsg := wire.NewMsgReject(msg.Command(), wire.RejectMalformed, reason)
+		_ = p.writeMessage(rejectMsg, wire.LatestEncoding)
+		return errors.New(reason)
+
+	}
+
+	//detect self connections.
+	if !allowSelfConns && sentNonces.Exists(msg.Nonce) {
+		return errors.New("disconnetcing peer connected to self")
+	}
+
+	//negotiate the protocol version and set the services to what the remote
+	//peer advertised.
+
+	p.flagsMtx.Lock()
+	p.advertisedProtoVer = uint32(msg.ProtocolVersion)
+	p.protocolVersion = minUint32(p.protocolVersion, p.advertisedProtoVer)
+	p.versionKnown = true
+	p.services = msg.Services
+	p.flagsMtx.Unlock()
+	log.Debugf("negotiated protocol version %d for peer %s", p.protocolVersion, p)
+
+	//updating a bunch of stats including block based stats .and the peer time offset
+	p.statsMtx.Lock()
+	p.lastBlock = msg.LastBlock
+	p.startingHeight = msg.LastBlock
+	p.timeOffset = msg.Timestamp.Unix() - time.Now().Unix()
+	p.statsMtx.Unlock()
+
+	//set the peer,s id ,user agent ,and protentially the flag which
+	//specifies the witneww support is enbalbed.
+	p.flagsMtx.Lock()
+	p.id = atomic.AddInt32(&nodeCount, 1)
+	p.userAgent = msg.UserAgent
+
+	//determine if the peer would like to receiver witness data with
+	//transactio or not
+	if p.services&wire.SFNodeWitness == wire.SFNodeWitness {
+		p.witnessEnabled = true
+	}
+	p.flagsMtx.Unlock()
+
+	//once the version message has been exchanged ,we are able to determine
+	//if this peer knows how to encode witness data over the wire protocol
+	//if so then we will switch to a decoding mode which is prepared for the
+	//new transaction format introduced as part of Bip0144.
+	if p.services&wire.SFNodeWitness == wire.SFNodeWitness {
+		p.wireEncoding = wire.WitnessEncoding
+	}
+
+	//invoke the callback if specified.
+	if p.cfg.Listeners.OnVersion != nil {
+		rejectMsg := p.cfg.Listeners.OnVersion(p, msg)
+		if remoteMsg != nil {
+			_ = p.writeMessage(rejectMsg, wire.LatestEncoding)
+			return errors.New(rejectMsg.Reason)
+		}
+	}
+
+	//notify and disconect clients that have a protocol version that is
+	//too old.
+	//noet:if minacceptableprotocolversion is raised to be higher than
+	//wire.rejectversion ,this should send a reject packet before disconnecting.
+	if uint32(msg.ProtocolVersion) < MinAcceptableProtocolVersion {
+		//send a reject message indicating the protocol version is obsolete
+		//and wait for the message to be sent before disconnecting .
+		reason := fmt.Sprintf("protocol version must be %d or grater",
+			MinAcceptableProtocolVersion)
+		rejectMsg := wire.NewMsgReject(msg.Command(), wire.RejectObsolete, reason)
+		_ = p.writeMessage(remoteMsg, wire.LatestEncoding)
+		return errors.New(reason)
+
+	}
+	return nil
+
 }
