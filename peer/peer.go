@@ -2169,25 +2169,91 @@ func (p *Peer) AssociateConnection(conn net.Conn) {
 
 }
 
+//waitfordisaconnect waits until the peer has completely disconnected and
+//all resource are cleaned up.this will happen if either the local or remote
+//side has been disconnected or the peer is forcibly disconnected via disconnected.
+func (p *Peer) WaitForDisconnect() {
+	<-p.quit
+}
 
+//newPeerBase returns a new base bitcoin peer based on the inbound flag .this is used
+//used by the newinboundpeer and nweoutboundpeer functiions to perform base setup needed
+//by both types of peers.
+func newPeerBase(origCfg *Config, inbound bool) *Peer {
+	//defualt to the max supported protocol version if not specify byt
+	//the caller.
+	cfg := *origCfg
+	if cfg.ProtocolVersion == 0 {
+		cfg.ProtocolVersion = MaxProtocolVersion
+	}
 
+	//set the chain parameters to testnet if the caller did not specify any.
+	if cfg.ChainParams == nil {
+		cfg.ChainParams = &chaincfg.TestNet3Params
+	}
 
+	//set the trickle interval if a non-positive value is specifed.
+	if cfg.TrickleInterval <= 0 {
+		cfg.TrickleInterval = DefaultTrickleInterval
+	}
 
+	p := Peer{
+		inbound:         inbound,
+		wireEncoding:    wire.BaseEncoding,
+		knownInventory:  newMruInventoryMap(maxKnownInventory),
+		stallControl:    make(chan stallControlMsg, 1), // nonblocking sync
+		outputQueue:     make(chan outMsg, outputBufferSize),
+		sendQueue:       make(chan outMsg, 1),   // nonblocking sync
+		sendDoneQueue:   make(chan struct{}, 1), // nonblocking sync
+		outputInvChan:   make(chan *wire.InvVect, outputBufferSize),
+		inQuit:          make(chan struct{}),
+		queueQuit:       make(chan struct{}),
+		outQuit:         make(chan struct{}),
+		quit:            make(chan struct{}),
+		cfg:             cfg, // Copy so caller can't mutate.
+		services:        cfg.Services,
+		protocolVersion: cfg.ProtocolVersion,
+	}
+	return &p
 
+}
 
+// NewInboundPeer returns a new inbound bitcoin peer. Use Start to begin
+// processing incoming and outgoing messages.
+func NewInboundPeer(cfg *Config) *Peer {
+	return newPeerBase(cfg, true)
+}
 
+//newoutboundpeer returns a new outbound bitcion peer.
+func NewOutboundPeer(cfg *Config, addr string) (*Peer, error) {
+	p := newPeerBase(cfg, false)
+	p.addr = addr
 
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
 
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return nil, err
+	}
 
+	if cfg.HostToNetAddress != nil {
+		na, err := cfg.HostToNetAddress(host, uint16(port), 0)
+		if err != nil {
+			return nil, err
+		}
+		p.na = na
+	} else {
+		p.na = wire.NewNetAddressIPPort(net.ParseIP(host), uint16(port), 0)
+	}
 
+	return p, nil
+}
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
-
-
-
-
-
-
-
-
-
+//over
