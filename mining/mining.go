@@ -159,16 +159,23 @@ func txPQByFee(pq *txPriorityQueue, i, j int) bool {
 
 }
 
-
-
-
-
-
-
-
-
-
-
+//newtxpriorityqueuw returns a new transaction priority queue that reserves the
+//passed amount of space for the elements the new priority queue uses either
+//the txprqpriority or the txpqbyfee compare function depending on the sortbyfee
+//paremater and is already initialized for use with heap.push / pop .the priority
+//queue can grow larger than the reserved space.but extra copies of the
+//underlying array can be avoided by reserving a sane value.
+func newTxPriorityQueue(reserve int, sortByFee bool) *txPriorityQueue {
+	pq := &txPriorityQueue{
+		items: make([]*txPrioItem, 0, reserve),
+	}
+	if sortByFee {
+		pq.SetLessFunc(txPQByFee)
+	} else {
+		pq.SetLessFunc(txPQByPriority)
+	}
+	return pq
+}
 
 //blocktemplate hourse a block that has yet to be solved along with additional
 //details about the fees and the number of signature operations for each
@@ -220,3 +227,44 @@ func mergeUtxoView(viewA *blockchain.UtxoViewpoint, viewB *blockchain.UtxoViewpo
 		}
 	}
 }
+
+// standardCoinbaseScript returns a standard script suitable for use as the
+// signature script of the coinbase transaction of a new block.  In particular,
+// it starts with the block height that is required by version 2 blocks and adds
+// the extra nonce as well as additional coinbase flags.
+func standardCoinbaseScript(nextBlockHeight int32, extraNonce uint64) ([]byte, error) {
+	return txscript.NewScriptBuilder().AddInt64(int64(nextBlockHeight)).
+		AddInt64(int64(extraNonce)).AddData([]byte(CoinbaseFlags)).
+		Script() ,nil
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
