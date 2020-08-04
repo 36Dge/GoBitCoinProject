@@ -2,6 +2,7 @@ package mining
 
 import (
 	"BtcoinProject/blockchain"
+	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
 	"container/heap"
@@ -235,8 +236,163 @@ func mergeUtxoView(viewA *blockchain.UtxoViewpoint, viewB *blockchain.UtxoViewpo
 func standardCoinbaseScript(nextBlockHeight int32, extraNonce uint64) ([]byte, error) {
 	return txscript.NewScriptBuilder().AddInt64(int64(nextBlockHeight)).
 		AddInt64(int64(extraNonce)).AddData([]byte(CoinbaseFlags)).
-		Script() ,nil
+		Script(), nil
 }
+
+// createCoinbaseTx returns a coinbase transaction paying an appropriate subsidy
+// based on the passed block height to the provided address.  When the address
+// is nil, the coinbase transaction will instead be redeemable by anyone.
+//
+// See the comment for NewBlockTemplate for more information about why the nil
+// address handling is useful.
+func createCoinbaseTx(params *chaincfg.Params, coinbaseScript []byte, nextBlockHeight int32, addr btcutil.Address) (*btcutil.Tx, error) {
+
+	//create the script to pay to the provided payment address if one was
+	//specified ,otherwise create a script that allows the coinbase to be
+	//redeemable by anyone.
+	var pkScript []byte
+	if addr != nil {
+		var err error
+		pkScript, err = txscript.PayToAddrScript(addr)
+		if err != nil {
+			return nil, err
+		}
+
+	} else {
+		var err error
+		scriptBulider := txscript.NewScriptBulider()
+		pkScript, err = scriptBulider.AddOp(txscript.OP_TRUE).Script()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	tx := wire.NewMsgTx(wire.TxVersion)
+	tx.AddTxIn(&wire.TxIn{
+		//coinbase tranactions have no inputs ,so previous output is zrio
+		//hash and max index.
+
+		PreviousOutPoint: *wire.NewOutPoint(&chainhash.Hash{}, wire.MaxPrevOutIndex),
+		SignatureScript:  coinbaseScript,
+		Sequence:         wire.MaxTxInSequenceNum,
+	})
+	tx.AddTxOut(&wire.TxOut{
+		Value:    blockchain.CalcBlockSubsidy(nextBlockHeight, params),
+		PkScript: pkScript,
+	})
+
+	return btcutil.NewTx(tx), nil
+
+}
+
+//spendtransaction updates the passed view by marking the inputs to the
+//passed transaction as spent.it also adds all outputs in the passed transaction
+//which are not provably unspendable as avaialbe unspent transaction oputputs.
+func spendtransaction(utxoView *blockchain.UtxoViewpoint, tx *btcutil.Tx, height int32) error {
+	for _, txIn := range tx.MsgTx().TxIn {
+		entry := utxoView.LookupEntry(txIn.PreviousOutPoint)
+		if entry != nil {
+			entry.Spend()
+		}
+	}
+
+	utxoView.AddTxOuts(tx, height)
+	return nil
+}
+
+//logskippeddeps logs any depnedencyes which are also skipped as a result
+//of skipping a transaction while generating a block template at the
+//trace level.
+func logSkippedDeps(tx *btcutil.Tx, deps map[chainhash.Hash]*txPrioItem) {
+	if deps == nil {
+		return
+	}
+
+	for _, item := range deps {
+		log.Tracef("skipping tx %s since it depneds on %s\n", item.tx.Hash(), tx.Hash())
+	}
+}
+
+//minimummediantime returns the minimum allowed timestamp for a block buliding on the
+//end of the provided best chain.in particular .it is one second after the median
+//timestamp of the laste several blocks per the chain conseus rules
+func MinimumMedianTime(chainState *blockchain.BestState) time.Time {
+	return chainState.MedianTime.Add(time.Second)
+}
+
+//medianadjustedtime returns the current time adjuested to ensure it
+//is at least one second after the median timestamp of the last several
+//blocks per the chain consensus ruels.
+func medianAdjustTime(chainState *btcutil.BestState, timeSource blockchain.MedianTimeSource) time.Time {
+
+	//the timestamp for the block must not be before the median timestamp
+	//of the last several blocks thus ,choose the maximum between the current
+	//time and one second after
+	newTimestamp := timeSource.AdjustedTime()
+	minTimestamp := MinimumMedianTime(chainState)
+	if newTimestamp.Before(minTimestamp) {
+		newTimestamp = minTimestamp
+	}
+
+	return newTimestamp
+
+}
+//blktmplgenerator providers a type that can be used to generate block template
+//based on a given minning policy and source of trnasaction to choose from.
+//it also houses addtional state required in order to ensure the templates
+//are bulit on top of the current best chain and andhere to the consensus rules.
+type BlkTmplGenerator struct {
+	Policy *Policy
+	chainParams *chaincfg.Params
+	TxSource TxSource
+	chain *blockchain.BlockChain
+	timeSource blockchain.MedianTimeSource
+	sigCache    *txscript.SigCache
+	hashCache   *txscript.HashCache
+}
+
+// NewBlkTmplGenerator returns a new block template generator for the given
+// policy using transactions from the provided transaction source.
+//
+// The additional state-related fields are required in order to ensure the
+// templates are built on top of the current best chain and adhere to the
+// consensus rules.
+func NewBlkTmplGenerator(policy *Policy, params *chaincfg.Params,
+	txSource TxSource, chain *blockchain.BlockChain,
+	timeSource blockchain.MedianTimeSource,
+	sigCache *txscript.SigCache,
+	hashCache *txscript.HashCache) *BlkTmplGenerator {
+
+	return &BlkTmplGenerator{
+		policy:      policy,
+		chainParams: params,
+		txSource:    txSource,
+		chain:       chain,
+		timeSource:  timeSource,
+		sigCache:    sigCache,
+		hashCache:   hashCache,
+	}
+}
+
+//
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
