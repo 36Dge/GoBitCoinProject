@@ -5,8 +5,10 @@ import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
+	"bytes"
 	"container/heap"
 	"github.com/btcsuite/btcutil"
+	"html/template"
 	"time"
 )
 
@@ -563,7 +565,7 @@ mempoolLoop:
 		//calcuate the final transation priority using the input
 		//value age sum well as the adjust transaction size.the
 		//formula is :sum(inputvalue * inputage) /adjustdTxsize
-		prioItem.priority = CalcPriority(tx.MsgTx(),utxos,nextBlockHeight)
+		prioItem.priority = CalcPriority(tx.MsgTx(), utxos, nextBlockHeight)
 
 		//calculate the fee in satoshi/kb
 		prioItem.feePerKB = TxDesc.FeePerKB
@@ -571,63 +573,210 @@ mempoolLoop:
 
 		//add the transaction to the priority queue to mark it ready
 		//for inclusion in the block unless it has depnedencies.
-		if prioItem.dependsOn == nil{
-			heap.Push(priorityQueue,prioItem)
+		if prioItem.dependsOn == nil {
+			heap.Push(priorityQueue, prioItem)
 		}
 
 		//merge the referenced outputs form the input transactions to
 		//this transaction into the block utxo view .this allows the
 		//code below to avoid a second lookup.
-		mergeUtxoView(blockUtxos,utxos)
+		mergeUtxoView(blockUtxos, utxos)
+	}
 
-		log.Tracef("priority queue len %d,depender len %d",priorityQueue.Len(),len(dependers))
+	log.Tracef("priority queue len %d,depender len %d", priorityQueue.Len(), len(dependers))
 
-		//the strating block size size is the size of the block header plus the
-		//max possible transaction count size.plus the size of the coinbase transaction
-		blockWeight := uint32((blockHeaderOverhead * blockchain.WitnessScaleFactor) +
-			blockchain.GetTransactionWeight(coinbaseTx))
-		blockSigOpCost := coinbaseSigOpCost
-		totalFees := int64(0)
+	//the strating block size size is the size of the block header plus the
+	//max possible transaction count size.plus the size of the coinbase transaction
+	blockWeight := uint32((blockHeaderOverhead * blockchain.WitnessScaleFactor) +
+		blockchain.GetTransactionWeight(coinbaseTx))
+	blockSigOpCost := coinbaseSigOpCost
+	totalFees := int64(0)
 
-		//query the version bits states to see if segwit has been activeted,if
-		//so then this means that we will include any transactions with witness
-		//data in the mempool.and also add the witness commitment as an op_return
-		//output in the coinbase transaction.
-		segwitState,err := g.chain.ThresholdState(chaincfg.DeploymentSegwit)
-		if err != nil{
-			return nil,err
+	//query the version bits states to see if segwit has been activeted,if
+	//so then this means that we will include any transactions with witness
+	//data in the mempool.and also add the witness commitment as an op_return
+	//output in the coinbase transaction.
+	segwitState, err := g.chain.ThresholdState(chaincfg.DeploymentSegwit)
+	if err != nil {
+		return nil, err
+	}
+	segwitActive := segwitState == blockchain.ThresholdActive
+
+	witnessIncluded := false
+
+	//chose which transactions make into the block.
+	for priorityQueue.Len() > 0 {
+
+		//grab the highest priority (or highest fee per kilobyte depeding on the
+		//sort order ) transaction.
+		prioItem := heap.Pop(priorityQueue).(*txPrioItem)
+		tx := prioItem.tx
+
+		switch {
+		//if segregated witness has not been activated yet. then we should not
+		//include any witness transaction in the block.
+		case !segwitActive && tx.HasWitness():
+			continue
+
+		//otherwise ,keep track of if we have included a trnasaction
+		//with witness data or not. if so. then we will need to include
+		//the witness commitment as the last output in the coinbase trnasaction.
+
+		case segwitActive && !witnessIncluded && tx.HasWitness():
+			//if we are about to include a transacion bearing witness data
+			//then we will also need to include a witness commitment in the
+			//coinbase transaction. therefore we acoout for the addiatiional
+			//weight within the block with model coinbase tx with a witness
+			//commitment.
+			coinbaseCopy := btcutil.NewTx(coinbaseTx.MsgTx().Copy())
+			coinbaseCopy.MsgTx().TxIn[0].Witnesss = [][]byte{
+				bytes.Repeat([]byte("a"),
+					blockchain.CoinbaseWitnessDataLen),
+			}
+			coinbaseCopy.MsgTx().AddTxOut(&wire.TxOut{
+				PkScript: bytes.Repeat([]byte("a"),
+					blockchain.CoinbaseWitnessPkScriptLength),
+			})
+
+			//in order to accurately account for the weight addition due
+			//to this coinbase trasnaction,we will add the difference of
+			//the transaction before and after the addition of the commitment to
+			//the block weight.
+
+			weightDiff := blockchain.GetTransactionWeight(coinbaseCopy) -
+				blockchain.GetTransactionWeight(coinbaseTx)
+
+			blockWeight += uint32(weightDiff)
+
+			witnessIncluded = true
+
 		}
-		segwitActive := segwitState == blockchain.ThresholdActive
 
-		witnessIncluded := false
+		//grab any transactions which depend on this one.
+		deps := dependers[*tx.Hash()]
 
-		//chose which transactions make into the block.
+		//enforce maximum block size. also check for overflow.
+		txWeight := uint32(blockchain.GetTransactionWeight(tx))
+		blockPlusTxWeight := blockWeight + txWeight
 
+		if blockPlusTxWeight < blockWeight || blockPlusTxWeight >= g.policy.BlockMaxWeight {
+			log.Tracef("skipping tx %s because it would exceed "+
+				"the max block weight", tx.Hash())
+			logSkippedDeps(tx, deps)
+			continue
+		}
 
+		//enfore maximum signature operation cost per block ,also check for overlaow
 
+		sigOpCost, err := blockchain.GetSigOpCost(tx, false, blockUtxos, true, segwitActive)
+		if err != nil {
+			log.Tracef("skipping tx %s due to error in "+
+				"getsigopcost:%v", tx.Hash(), err)
+			logSkippedDeps(tx, deps)
+			continue
+		}
 
+		if blockSigOpCost+int64(sigOpCost) < blockSigOpCost ||
+			blockSigOpCost+int64(sigOpCost) > blockchain.MaxBlockSigOpsCost {
+			log.Tracef("skipping tx %s because it would "+"exceed the maximum sigoops per block", tx.Hash())
+			logSkippedDeps(tx, deps)
+			continue
+		}
 
+		//skip free transactions once the block is larger than the minimum block size
+		if sortedByFee && prioItem.feePerKB < int64(g.policy.TxMinFreeFee) &&
+			blockPlusTxWeight >= g.policy.BlockMinWeight {
+			log.Tracef("Skipping tx %s with feePerKB %d "+
+				"< TxMinFreeFee %d and block weight %d >= "+
+				"minBlockWeight %d", tx.Hash(), prioItem.feePerKB,
+				g.policy.TxMinFreeFee, blockPlusTxWeight,
+				g.policy.BlockMinWeight)
+			logSkippedDeps(tx, deps)
+			continue
+		}
 
+		//prioritize by fee per kilobyte once block is larger than the priority
+		//size or there are no more high-priority transaction.
+		if !sortedByFee && (blockPlusTxWeight >= g.policy.BlockPrioritySize ||
+			prioItem.priority <= MinHighPriority) {
+			log.Tracef("Switching to sort by fees per "+
+				"kilobyte blockSize %d >= BlockPrioritySize "+
+				"%d || priority %.2f <= minHighPriority %.2f",
+				blockPlusTxWeight, g.policy.BlockPrioritySize,
+				prioItem.priority, MinHighPriority)
 
+			sortedByFee = true
+			priorityQueue.SetLessFunc(txPQByFee)
 
+			//put the transaction back into the priority queue and
+			//skip it so it is re-prioritzed by fee if it wont fit
+			//fit into the high-priority section or the priority is
+			//too low .otherwise this transaction will be the final
+			//one in the high-priority section .so just fall through
+			//to the code below so it is added now.
+			if blockPlusTxWeight > g.policy.BlockPrioritySize ||
+				prioItem.priority < MinHighPriority {
+				heap.Push(priorityQueue, prioItem)
+				continue
+			}
+		}
 
+		//ensure the transaction inputs pass all of the necesary preconditions before
+		//allowing it to be added to the block
+		_, err := blockchain.CheckTransactionInputs(tx, nextBlockHeight, blockUtxos, g.chainParams)
+		if err != nil {
+			log.Tracef("skipping tx %s due to error in "+"checktransactioninputs:%v", tx.Hash(), err)
+			logSkippedDeps(tx, deps)
+			continue
+		}
+		err = blockchiain.ValidateTransactionScripts(tx, blockUtxos,
+			txscript.StandardVerifyFlags, g.sigCache,
+			g.hashCache)
+		if err != nil {
+			log.Tracef("skipping tx %s due to error in "+
+				"validatetransactionscripts:%v", tx.Hash(), err)
+			logSkippedDeps(tx, deps)
+			continue
+		}
 
+		// Spend the transaction inputs in the block utxo view and add
+		// an entry for it to ensure any transactions which reference
+		// this one have it available as an input and can ensure they
+		// aren't double spending.
+		spendTransaction(blockUtxos, tx, nextBlockHeight)
 
+		//add the transaction to the block ,increment counters.and
+		//save the fees and signature operation counts to the block
+		//template.
+		blockTxns = append(blockTxns, tx)
+		blockWeight += txWeight
+		blockSigOpCost += int64(sigOpCost)
+		totalFees += prioItem.fee
+		txFees = append(txFees, prioItem.fee)
+		txSigOpCosts = append(txSigOpCosts, int64(sigOpCost))
 
+		log.Tracef("adding tx %s (priority %.2f,feePerKb %.2f)", prioItem.tx.Hash(), prioItem.priority, prioItem.feePerKB)
 
-
-
-
-
-
-
-
-
-
-
-
-
+		//add transaction which depend on this one (and also do not have any other
+		//unsatisifed dependcies ) to the priority queue
+		for _, item := range deps {
+			//add the transaction to the priority queue if there
+			//are no more dependencies after this one.
+			delete(item.dependsOn, *tx.Hash())
+			if len(item.dependsOn) == 0 {
+				heap.Push(priorityQueue, item)
+			}
+		}
 
 	}
+
+	//now that the actual transaction have been selected .update the block
+	//weitht for the real transaction count and coinbase value with the
+	//total fees accrordingly.
+	blockWeight -= wire.MaxVarIntPayload - (uint32(wire.VarIntSerializeSize(uint64(len(blockTxns)))) *
+		blockchain.WitnessScaleFactor)
+
+	coinbaseTx.MsgTx().TxOut[0].Value += totalFees
+	txFees[0] = -totalFees
 
 }
