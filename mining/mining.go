@@ -7,6 +7,7 @@ import (
 	"BtcoinProject/wire"
 	"bytes"
 	"container/heap"
+	"fmt"
 	"github.com/btcsuite/btcutil"
 	"html/template"
 	"time"
@@ -779,4 +780,193 @@ mempoolLoop:
 	coinbaseTx.MsgTx().TxOut[0].Value += totalFees
 	txFees[0] = -totalFees
 
+	//if segwit is active and we included transaction with witness data.
+	//then we will need to include a commmitment to the witness data in an
+	//op_return about within the coinbase transaction.
+	var witnessCommitment []byte
+	if witnessIncluded {
+		//the witness of coinbase transaction must be exactly 32-bytes of all zerol
+		var witnessNonce [blockchain.CoinbaseWitnessDataLen]byte
+		coinbaseTx.MsgTx().TxIn[0].Witness = wire.TxWitness{witnessNonce[:]}
+
+		//next.obtain the merkle root of a tree which consists of the wtxid of
+		//all transaction in the block ,the coinbase transaction will have a
+		//s special wtxid of all zero
+		witnessMerkleTree := blockchain.BuildMerkleTreeStore(blockTxns,
+			true)
+		witnessMerkleRoot := witnessMerkleTree[len(witnessMerkleTree)-1]
+
+		//the preimage to the witness commitment is:
+		//witnessRoot || coinbaseWitness.
+		var witnessPreimage [64]byte
+		copy(witnessPreimage[:32], witnessMerkleRoot[:])
+		copy(witnessPreimage[32:], witnessNonce[:])
+
+		//the witness commitness iteself is the double-sha256 of the witness
+		//preimage generated above.with the commitment generated.the witness
+		//script for the output is :op_return op_data_36{0xaa21a9ed || witnessCommitment}. The leading
+		// prefix is referred to as the "witness magic bytes".
+		witnessCommitment = chainhash.DoubleHashB(witnessPreimage[:])
+		witnessScript := append(blockchain.WitnessMagicBytes, witnessCommitment...)
+
+		//finally create the op_return carrying witness commitnment output
+		//as an addition output within the coinbase
+		commitmentOutput := &wrie.TxOut{
+			Value:    0,
+			PkScript: witnessScript,
+		}
+		coinbaseTx.MsgTx().TxOut = append(coinbaseTx.MsgTx().TxOut,
+			commitmentOutput)
+
+	}
+
+	//calculate the required difficuly for the block .the timestamp is potentiasly
+	//adjust to ensure it comes after the median time of the last sevenral blcoks
+	//per the chain consensus rules.
+
+	ts := medianAdjustTime(best, g.timeSource)
+	reqDifficult, err := g.chain.CalcNextRequiredDifficulty(ts)
+	if err != nil {
+		return nil, err
+	}
+
+	//calclulate the next expected block version based on the state of the rule
+	//change deployment.
+	nextBlockVersion, err := g.chain.CalcNextBlockVersion()
+	if err != nil {
+		return nil, err
+	}
+
+	//create a new block ready to be solved
+	merkles := blockchain.BuildMerkleTreeStore(blockTxns, false)
+	var msgBlock wire.MsgBlock
+	msgBlock.Header = wire.BlockHeader{
+		Version:    nextBlockHeight,
+		PrevBlock:  best.Hash,
+		MerkleRoot: *merkles[len(merkles)-1],
+		Timestamp:  ts,
+		Bits:       reqDifficult,
+	}
+
+	for _, tx := range blockTxns {
+		if err := msgBlock.AddTransaction(tx.MsgTx()); err != nil {
+			return nil, err
+		}
+	}
+
+	//finanly ,perform a full check on the created block against the chain
+	//consensus rules to ensure it properly conncets to the current best
+	//chain with no isssues.
+	block := btcutil.NewBlock(&msgBlock)
+	block.SetHeight(nextBlockHeight)
+	if err := g.chain.CheckConnectBlockTemplate(block); err != nil {
+		return nil, err
+	}
+
+	log.Debugf("Created new block template (%d transactions, %d in "+
+		"fees, %d signature operations cost, %d weight, target difficulty "+
+		"%064x)", len(msgBlock.Transactions), totalFees, blockSigOpCost,
+		blockWeight, blockchain.CompactToBig(msgBlock.Header.Bits))
+
+	return &BlockTemplate{
+		Block:             &msgBlock,
+		Fees:              txFees,
+		SigOpCost:         txSigOpCosts,
+		Height:            nextBlockHeight,
+		ValidPayAddress:   payToAddress != nil,
+		WitnessCommitment: witnessCommitment,
+	}, nil
+
 }
+
+//updateblocktime updates the timestamp in the header of the
+//passed block to the current time while taking into account the chain
+//consensus rules .finanal ,it will update the target difficult if need
+//based on the new time for the test network since their target difficult can
+//change based upon time.
+func (g *BlkTmplGenerator) UpdateBlockTime(msgBlock *wire.MsgBlock) error {
+	//the new timestamp is potentially adjusted to ensure it comes after
+	//the median time of the last several blcoks per the chain consensus rules.
+	newTime := medianAdjustTime(g.chain.BestSnapshot(), g.timeSource)
+	msgBlock.Header.Timestamp = newTime
+
+	//recalulate the difficulty if running on a network that requires it .
+	if g.chainParams.ReduceMinDifficulty {
+		difficulty, err := g.chain.CalcNextRequiredDifficulty(newTime)
+		if err != nil {
+			return err
+		}
+		msgBlock.Header.Bits = difficulty
+	}
+
+	return nil
+
+}
+
+//updatextranonce updates teh extra nonce in the coinbase script of the
+//passed block by regenearting the coinbase script the passed value
+//and block hegith .it also recalulates and updates the new merkele
+//root that results form changing the coinbase script
+func (g *BlkTmplGenerator) UpdateExtraNonce(msgBlock *wire.MsgBlock, blockHeight int32, extraNonce uint64) error {
+	coinbaseScript, err := standardCoinbaseScript(blockHeight, extraNonce)
+	if err != nil {
+		return err
+	}
+
+	if len(coinbaseScript) > blockchain.MaxCoinbaseScriptLen {
+		return fmt.Errorf("coinbase transaction script lenth"+
+			"of %d is out of range (min:%d,max:%d)", len(coinbaseScript), blockchain.MinCoinbaseScriptLen,
+			blockchain.MaxCoinbaseScriptLen)
+	}
+
+	msgBlock.Transactions[0].TxIn[0].SignatureScript = coinbaseScript
+
+	//recalculate the merkle root with the updated extra nonce.
+	block := btcutil.NewBlock(msgBlock)
+	merkles := blockchain.BuildMerkleTreeStore(block.Transactions(), false)
+	msgBlock.Header.MerkleRoot = *merkles[len(merkles)-1]
+
+	return nil
+
+}
+
+// BestSnapshot returns information about the current best chain block and
+// related state as of the current point in time using the chain instance
+// associated with the block template generator.  The returned state must be
+// treated as immutable since it is shared by all callers.
+//
+// This function is safe for concurrent access.
+func (g *BlkTmplGenerator) BestSnapshot() *blockchain.BestState {
+	return g.chain.BestSnapshot()
+}
+
+// TxSource returns the associated transaction source.
+//
+// This function is safe for concurrent access.
+func (g *BlkTmplGenerator) TxSource() TxSource {
+	return g.txSource
+}
+//over
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
