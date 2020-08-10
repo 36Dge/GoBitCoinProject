@@ -946,6 +946,7 @@ func (g *BlkTmplGenerator) BestSnapshot() *blockchain.BestState {
 func (g *BlkTmplGenerator) TxSource() TxSource {
 	return g.txSource
 }
+
 //over
 
 
