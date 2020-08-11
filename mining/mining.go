@@ -9,7 +9,6 @@ import (
 	"container/heap"
 	"fmt"
 	"github.com/btcsuite/btcutil"
-	"html/template"
 	"time"
 )
 
@@ -348,7 +347,7 @@ func medianAdjustTime(chainState *btcutil.BestState, timeSource blockchain.Media
 type BlkTmplGenerator struct {
 	policy      *Policy
 	chainParams *chaincfg.Params
-	TxSource    TxSource
+	txSource    TxSource
 	chain       *blockchain.BlockChain
 	timeSource  blockchain.MedianTimeSource
 	sigCache    *txscript.SigCache
@@ -724,7 +723,7 @@ mempoolLoop:
 
 		//ensure the transaction inputs pass all of the necesary preconditions before
 		//allowing it to be added to the block
-		_, err := blockchain.CheckTransactionInputs(tx, nextBlockHeight, blockUtxos, g.chainParams)
+		_, err = blockchain.CheckTransactionInputs(tx, nextBlockHeight, blockUtxos, g.chainParams)
 		if err != nil {
 			log.Tracef("skipping tx %s due to error in "+"checktransactioninputs:%v", tx.Hash(), err)
 			logSkippedDeps(tx, deps)
@@ -841,7 +840,7 @@ mempoolLoop:
 	merkles := blockchain.BuildMerkleTreeStore(blockTxns, false)
 	var msgBlock wire.MsgBlock
 	msgBlock.Header = wire.BlockHeader{
-		Version:    nextBlockHeight,
+		Version:    nextBlockVersion,
 		PrevBlock:  best.Hash,
 		MerkleRoot: *merkles[len(merkles)-1],
 		Timestamp:  ts,
