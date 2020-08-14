@@ -1,81 +1,82 @@
 
+// Copyright (c) 2013-2014 The btcsuite developers
+// Use of this source code is governed by an ISC
+// license that can be found in the LICENSE file.
+
 /*
-此包主要为区块链实现比特币区块处理和链选择规则。
+Package blockchain implements bitcoin block handling and chain selection rules.
 
-比特币区块处理和链选择规则是一个整体，相当
-可能是比特币中最重要的部分。不幸的是，在
-这篇文章，这些规则也大部分是没有文件的，必须是
-从比特币源代码确定。比特币的核心是
-分布式共识：哪些块有效，哪些块将构成
-最终确定接受的主区块链（公共分类账）
-因此，完全验证节点的一致性非常重要
-所有规则。
+The bitcoin block handling and chain selection rules are an integral, and quite
+likely the most important, part of bitcoin.  Unfortunately, at the time of
+this writing, these rules are also largely undocumented and had to be
+ascertained from the bitcoind source code.  At its core, bitcoin is a
+distributed consensus of which blocks are valid and which ones will comprise the
+main block chain (public ledger) that ultimately determines accepted
+transactions, so it is extremely important that fully validating nodes agree on
+all rules.
 
-在较高的层次上，此包支持将新块插入
-根据上述规则的区块链。它包括
-拒绝重复块、确保块和
-事务遵循所有规则、孤立处理和最佳链选择
-通过重组。
+At a high level, this package provides support for inserting new blocks into
+the block chain according to the aforementioned rules.  It includes
+functionality such as rejecting duplicate blocks, ensuring blocks and
+transactions follow all rules, orphan handling, and best chain selection along
+with reorganization.
 
-因为这个套餐不涉及其他比特币的细节，比如网络
-通信或钱包，它提供一个通知系统
-调用者对某些事件的反应具有高度的灵活性
+Since this package does not deal with other bitcoin specifics such as network
+communication or wallets, it provides a notification system which gives the
+caller a high level of flexibility in how they want to react to certain events
+such as orphan blocks which need their parents requested and newly connected
+main chain blocks which might result in wallet updates.
 
+Bitcoin Chain Processing Overview
 
+Before a block is allowed into the block chain, it must go through an intensive
+series of validation rules.  The following list serves as a general outline of
+those rules to provide some intuition into what is going on under the hood, but
+is by no means exhaustive:
 
-比特币链处理概述
+ - Reject duplicate blocks
+ - Perform a series of sanity checks on the block and its transactions such as
+   verifying proof of work, timestamps, number and character of transactions,
+   transaction amounts, script complexity, and merkle root calculations
+ - Compare the block against predetermined checkpoints for expected timestamps
+   and difficulty based on elapsed time since the checkpoint
+ - Save the most recent orphan blocks for a limited time in case their parent
+   blocks become available
+ - Stop processing if the block is an orphan as the rest of the processing
+   depends on the block's position within the block chain
+ - Perform a series of more thorough checks that depend on the block's position
+   within the block chain such as verifying block difficulties adhere to
+   difficulty retarget rules, timestamps are after the median of the last
+   several blocks, all transactions are finalized, checkpoint blocks match, and
+   block versions are in line with the previous blocks
+ - Determine how the block fits into the chain and perform different actions
+   accordingly in order to ensure any side chains which have higher difficulty
+   than the main chain become the new main chain
+ - When a block is being connected to the main chain (either through
+   reorganization of a side chain to the main chain or just extending the
+   main chain), perform further checks on the block's transactions such as
+   verifying transaction duplicates, script complexity for the combination of
+   connected scripts, coinbase maturity, double spends, and connected
+   transaction values
+ - Run the transaction scripts to verify the spender is allowed to spend the
+   coins
+ - Insert the block into the block database
 
+Errors
 
-一系列验证规则。以下列表是
-这些规则提供了一些关于引擎盖下发生的事情的直觉，但是
-决不是详尽的：
+Errors returned by this package are either the raw errors provided by underlying
+calls or of type blockchain.RuleError.  This allows the caller to differentiate
+between unexpected errors, such as database errors, versus errors due to rule
+violations through type assertions.  In addition, callers can programmatically
+determine the specific rule violation by examining the ErrorCode field of the
+type asserted blockchain.RuleError.
 
- -拒绝重复块
- -对块及其事务执行一系列健全性检查，例如
-   核实工作证明、时间戳、交易数量和特征，
-   事务量、脚本复杂性和merkle根计算
- -将块与预先确定的检查点比较预期时间戳
-   以及从检查点开始的时间所带来的困难
- -将最近的孤立块保存有限的时间，以防其父块
-   块可用
- -如果块作为处理的其余部分是孤立块，则停止处理
-   取决于区块链中区块的位置
- -根据块的位置执行一系列更彻底的检查。
-   在区块链内，如验证区块困难，坚持
-   难以重定目标规则，时间戳位于最后一个的中间值之后
+Bitcoin Improvement Proposals
 
-   块版本与以前的块一致
- -确定块如何装入链条并执行不同的操作
-   因此，为了确保任何难度较大的侧链
-   比主链成为新的主链
+This package includes spec changes outlined by the following BIPs:
 
-
-   主链），对块的事务执行进一步检查，例如
-
-
-   交易价值
- -运行事务脚本以验证是否允许花费者
-   硬币
- -将块插入块数据库
-
-错误
-
-此包返回的错误可能是底层提供的原始错误
-调用或类型为blockback.ruleerror。这允许呼叫者区分
-在数据库错误等意外错误与规则错误之间
-通过类型断言违反。此外，调用者可以通过编程
-通过检查
-类型断言的区块链.ruleError。
-
-比特币改进建议
-
-此包包括以下BIP概述的规范更改：
-
-  bip0016（https://en.bitcoin.it/wiki/bip_0016）
-  bip0030（https://en.bitcoin.it/wiki/bip0030）
-  bip0034（https://en.bitcoin.it/wiki/bip0034）
-**/
-
+		BIP0016 (https://en.bitcoin.it/wiki/BIP_0016)
+		BIP0030 (https://en.bitcoin.it/wiki/BIP_0030)
+		BIP0034 (https://en.bitcoin.it/wiki/BIP_0034)
+*/
 package blockchain
-
-
