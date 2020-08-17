@@ -1,5 +1,39 @@
 package blockchain
 
+
+// These constants are used to identify specific threshold states.
+const (
+	// ThresholdDefined is the first state for each deployment and is the
+	// state for the genesis block has by definition for all deployments.
+	ThresholdDefined ThresholdState = iota
+
+	// ThresholdStarted is the state for a deployment once its start time
+	// has been reached.
+	ThresholdStarted
+
+	// ThresholdLockedIn is the state for a deployment during the retarget
+	// period which is after the ThresholdStarted state period and the
+	// number of blocks that have voted for the deployment equal or exceed
+	// the required number of votes for the deployment.
+	ThresholdLockedIn
+
+	// ThresholdActive is the state for a deployment for all blocks after a
+	// retarget period in which the deployment was in the ThresholdLockedIn
+	// state.
+	ThresholdActive
+
+	// ThresholdFailed is the state for a deployment once its expiration
+	// time has been reached and it did not reach the ThresholdLockedIn
+	// state.
+	ThresholdFailed
+
+	// numThresholdsStates is the maximum number of threshold states used in
+	// tests.
+	numThresholdsStates
+
+
+)
+
 // IsDeploymentActive returns true if the target deploymentID is active, and
 // false otherwise.
 //
