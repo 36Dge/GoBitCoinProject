@@ -1,5 +1,11 @@
 package blockchain
 
+import (
+	"BtcoinProject/chaincfg/chainhash"
+	"fmt"
+)
+
+type ThresholdState byte
 
 // These constants are used to identify specific threshold states.
 const (
@@ -34,21 +40,21 @@ const (
 
 )
 
-// IsDeploymentActive returns true if the target deploymentID is active, and
-// false otherwise.
-//
-// This function is safe for concurrent access.
-func (b *BlockChain) IsDeploymentActive(deploymentID uint32) (bool, error) {
-	b.chainLock.Lock()
-	state, err := b.deploymentState(b.bestChain.Tip(), deploymentID)
-	b.chainLock.Unlock()
-	if err != nil {
-		return false, err
-	}
-
-	return state == ThresholdActive, nil
+var thresholdStateStrings = map[ThresholdState]string{
+	ThresholdDefined:  "ThresholdDefined",
+	ThresholdStarted:  "ThresholdStarted",
+	ThresholdLockedIn: "ThresholdLockedIn",
+	ThresholdActive:   "ThresholdActive",
+	ThresholdFailed:   "ThresholdFailed",
 }
 
+//string returns the thersholdstate as a human-readable name.
+func (t ThresholdState)String()string  {
+	if s := thresholdStateStrings[t]; s != ""{
+		return s
+	}
+	return fmt.Sprintf("unkonwn thresholdstate(%d)",int(t))
+}
 
 
 
@@ -78,3 +84,51 @@ type thresholdConditionChecker interface {
 	// needed.
 	Condition(*blockNode) (bool, error)
 }
+
+//thresholdstatecache provides a type to cache the threshold states of each
+//thershold window for s set of ids.
+type thresholdStateCache struct {
+	entries map[chainhash.Hash]ThresholdState
+}
+
+//lookup returns the threshold state associated with the given
+//hash along with a boolean that indicates whether or not it is
+//valid
+func (c *thresholdStateCache) Lookup(hash *chainhash.Hash)(ThresholdState,bool){
+	state,ok := c.entries[*hash]
+	return state,ok
+}
+
+//update the cache to contain the provided hash to threshold state mappning
+func (c *thresholdStateCache)Update(hash *chainhash.Hash,state ThresholdState)  {
+	c.entries[*hash] = state
+}
+
+//newthresholdcahes returns a new array of caches to be used
+//when calculating threshold states.
+func newThresholdCaches(numCaches uint32) []thresholdStateCache {
+	caches := make([]thresholdStateCache,numCaches)
+	for i := 0; i< len(caches);i++{
+		caches[i] = thresholdStateCache{entries: make(map[chainhash.Hash]ThresholdState)}
+	}
+	return  caches
+}
+
+
+
+// IsDeploymentActive returns true if the target deploymentID is active, and
+// false otherwise.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) IsDeploymentActive(deploymentID uint32) (bool, error) {
+	b.chainLock.Lock()
+	state, err := b.deploymentState(b.bestChain.Tip(), deploymentID)
+	b.chainLock.Unlock()
+	if err != nil {
+		return false, err
+	}
+
+	return state == ThresholdActive, nil
+}
+
+
