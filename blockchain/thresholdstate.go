@@ -258,3 +258,95 @@ func (b *BlockChain) IsDeploymentActive(deploymentID uint32) (bool, error) {
 	}
 	return state == ThresholdActive, nil
 }
+
+// deploymentState returns the current rule change threshold for a given
+// deploymentID. The threshold is evaluated from the point of view of the block
+// node passed in as the first argument to this method.
+//
+// It is important to note that, as the variable name indicates, this function
+// expects the block node prior to the block for which the deployment state is
+// desired.  In other words, the returned deployment state is for the block
+// AFTER the passed node.
+//
+// This function MUST be called with the chain state lock held (for writes).
+
+func (b *BlockChain) deploymentState(prevNode *blockNode, deploymentID uint32) (ThresholdState, error) {
+
+	if deploymentID > uint32((len(b.chainParams.Deployments))) {
+		return ThresholdFailed, DeploymentError(deploymentID)
+	}
+
+	depolyment := &b.chainParams.Deployments[deploymentID]
+	checker := deploymentChecker{deployment: depolyment, chain: b}
+	cache := &b.deploymentCaches[deploymentID]
+
+	return b.thresholdState(prevNode, checker, cache)
+
+}
+
+//initthresholdcaches initializes the threshold states cahhes for
+//each warning bit and defined deployment and provided warning
+//if the chain is current per the warnunknownversions and
+//warnunkionningrule activations functions.
+func (b *BlockChain)initThresholdCaches()error  {
+	prevNode := b.bestChain.Tip().parent
+	for bit := uint32(0); bit < vbNumBits; bit++ {
+		checker := bitConditionChecker{bit: bit, chain: b}
+		cache := &b.warningCaches[bit]
+		_, err := b.thresholdState(prevNode, checker, cache)
+		if err != nil {
+			return err
+		}
+	}
+	for id := 0; id < len(b.chainParams.Deployments); id++ {
+		deployment := &b.chainParams.Deployments[id]
+		cache := &b.deploymentCaches[id]
+		checker := deploymentChecker{deployment: deployment, chain: b}
+		_, err := b.thresholdState(prevNode, checker, cache)
+		if err != nil {
+			return err
+		}
+	}
+
+	// No warnings about unknown rules or versions until the chain is
+	// current.
+	if b.isCurrent() {
+		// Warn if a high enough percentage of the last blocks have
+		// unexpected versions.
+		bestNode := b.bestChain.Tip()
+		if err := b.warnUnknownVersions(bestNode); err != nil {
+			return err
+		}
+
+		// Warn if any unknown new rules are either about to activate or
+		// have already been activated.
+		if err := b.warnUnknownRuleActivations(bestNode); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+
+//over
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
