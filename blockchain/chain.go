@@ -65,6 +65,12 @@ type BlockChain struct {
 	prevOrphans  map[chainhash.Hash][]*orphanBlock
 	oldestOrphan *orphanBlock
 
+	// These fields are related to checkpoint handling.  They are protected
+	// by the chain lock.
+	nextCheckpoint *chaincfg.Checkpoint
+	checkpointNode *blockNode
+
+
 	//状态被用作缓存信息的一种相当有效的方法。
 	//关于在以下情况下返回给调用方的当前最佳链状态：
 	//请求。它的工作原理是MVCC，因此任何时候
