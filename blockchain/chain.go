@@ -27,15 +27,14 @@ type BestState struct {
 	MedianTime  time.Time      // 根据calcpastmediantime确定的中间时间
 }
 
-type BlockLocator []*chainhash.Hash
-
-//区块链提供使用比特币区块链的功能
-//它包括拒绝重复块，确保块等功能
-//遵循所有规则，孤立处理，检查点处理和最佳链
-//选择与重组
+// BlockChain provides functions for working with the bitcoin block chain.
+// It includes functionality such as rejecting duplicate blocks, ensuring blocks
+// follow all rules, orphan handling, checkpoint handling, and best chain
+// selection with reorganization.
 type BlockChain struct {
-	//以下字段是在创建实例时设置的，之后不能再更改
-	//因此无需使用单独互斥
+	// The following fields are set when the instance is created and can't
+	// be changed afterwards, so there is no need to protect them with a
+	// separate mutex.
 	checkpoints         []chaincfg.Checkpoint
 	checkpointsByHeight map[int32]*chaincfg.Checkpoint
 	db                  database.DB
@@ -44,22 +43,33 @@ type BlockChain struct {
 	sigCache            *txscript.SigCache
 	indexManager        IndexManager
 	hashCache           *txscript.HashCache
-	//以下字段是根据提供的链计算的参数，他们也在创建实例
-	//时候设置,并且以后不能再更改，因此无需使用单独互斥体
-	minRetargetTimespan int64
-	maxRetargetTimespan int64
-	blockPerRetarget    int32
 
-	//chainlock保护大多数此结构体中低于此点的字段
+	// The following fields are calculated based upon the provided chain
+	// parameters.  They are also set when the instance is created and
+	// can't be changed afterwards, so there is no need to protect them with
+	// a separate mutex.
+	minRetargetTimespan int64 // target timespan / adjustment factor
+	maxRetargetTimespan int64 // target timespan * adjustment factor
+	blocksPerRetarget   int32 // target timespan / target time per block
+
+	// chainLock protects concurrent access to the vast majority of the
+	// fields in this struct below this point.
 	chainLock sync.RWMutex
-	//他们自己的锁，但是他们也经常受到链条的保护
-	//锁定以帮助在处理块时防止逻辑争用。
-	//索引将整个块索引存储在内存中。块索引是树形结构
-	//bestchain通过使用块索引中的高效链视图
+
+	// These fields are related to the memory block index.  They both have
+	// their own locks, however they are often also protected by the chain
+	// lock to help prevent logic races when blocks are being processed.
+	//
+	// index houses the entire block index in memory.  The block index is
+	// a tree-shaped structure.
+	//
+	// bestChain tracks the current active chain by making use of an
+	// efficient chain view into the block index.
 	index     *blockIndex
 	bestChain *chainView
 
-	//这些字段与处理孤立块相比，他们是由联锁和孤立锁的组合保护
+	// These fields are related to handling of orphan blocks.  They are
+	// protected by a combination of the chain lock and the orphan lock.
 	orphanLock   sync.RWMutex
 	orphans      map[chainhash.Hash]*orphanBlock
 	prevOrphans  map[chainhash.Hash][]*orphanBlock
@@ -70,45 +80,56 @@ type BlockChain struct {
 	nextCheckpoint *chaincfg.Checkpoint
 	checkpointNode *blockNode
 
-
-	//状态被用作缓存信息的一种相当有效的方法。
-	//关于在以下情况下返回给调用方的当前最佳链状态：
-	//请求。它的工作原理是MVCC，因此任何时候
-	//新块成为最佳块，状态指针替换为
-	//新结构和旧状态保持不变。这样，
-	//多个调用方可以指向不同的最佳链状态。
-	//对于大多数呼叫者来说，这是可以接受的，因为状态
-	//在特定时间点查询。此外，一些字段存储在数据库中，因此
-	//链状态可以在加载时快速重建。
-
+	// The state is used as a fairly efficient way to cache information
+	// about the current best chain state that is returned to callers when
+	// requested.  It operates on the principle of MVCC such that any time a
+	// new block becomes the best block, the state pointer is replaced with
+	// a new struct and the old state is left untouched.  In this way,
+	// multiple callers can be pointing to different best chain states.
+	// This is acceptable for most callers because the state is only being
+	// queried at a specific point in time.
+	//
+	// In addition, some of the fields are stored in the database so the
+	// chain state can be quickly reconstructed on load.
 	stateLock     sync.RWMutex
 	stateSnapshot *BestState
 
-	//以下缓存用于有效地跟踪
-	//每个规则的当前部署阈值状态将更改部署。
-	//此信息存储在数据库中，因此可以快速带载重建。
-	//警告缓存缓存块的当前部署阈值状态
-	//在每个**可能的**部署中。这是用来
-	//在投票表决新的未识别规则更改时检测和/或
-	//已被激活，如在旧版本的软件正在使用中
-	//DeploymentCaches缓存的当前部署阈值状态
-	//每个活动定义的部署中的块。
-
+	// The following caches are used to efficiently keep track of the
+	// current deployment threshold state of each rule change deployment.
+	//
+	// This information is stored in the database so it can be quickly
+	// reconstructed on load.
+	//
+	// warningCaches caches the current deployment threshold state for blocks
+	// in each of the **possible** deployments.  This is used in order to
+	// detect when new unrecognized rule changes are being voted on and/or
+	// have been activated such as will be the case when older versions of
+	// the software are being used
+	//
+	// deploymentCaches caches the current deployment threshold state for
+	// blocks in each of the actively defined deployments.
 	warningCaches    []thresholdStateCache
 	deploymentCaches []thresholdStateCache
 
-	//以下字段用于确定某些警告是否具有已经显示。
-	//未知规则是指由于未知规则激活。
-	//UnknownInversionsWarned是指由未知版本引起的警告。
-	//正在开采。
+	// The following fields are used to determine if certain warnings have
+	// already been shown.
+	//
+	// unknownRulesWarned refers to warnings due to unknown rules being
+	// activated.
+	//
+	// unknownVersionsWarned refers to warnings due to unknown versions
+	// being mined.
 	unknownRulesWarned    bool
 	unknownVersionsWarned bool
 
-	//“通知”字段存储要在其上执行的回调切片
-	//某些区块链事件。
+	// The notifications field stores a slice of callbacks to be executed on
+	// certain blockchain events.
 	notificationsLock sync.RWMutex
 	notifications     []NotificationCallback
 }
+
+
+type BlockLocator []*chainhash.Hash
 
 //孤立块表示我们还没有父块的块。它是一个普通块加上
 //一个过期时间以防止缓存孤立块永远
@@ -117,7 +138,6 @@ type orphanBlock struct {
 	block      *btcutil.Block
 	expiration time.Time
 }
-
 
 
 // GetOrphanRoot returns the head of the chain for the provided hash from the

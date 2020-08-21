@@ -4,6 +4,8 @@ import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
 	"fmt"
+	"github.com/btcsuite/btcutil"
+	"time"
 )
 
 //checkpointconfirmations is the number of blocks before the end of the current
@@ -155,4 +157,96 @@ func (b *BlockChain) findPreviousCheckpoint() (*blockNode, error) {
 
 }
 
+//isnonstandrtansaction determine whether a transaction contains any
+//sciripts which are not one of the stardard types.
+func isNonstandardTransaction(tx *btcutil.Tx) bool {
+	//check all of the output public key scripts for non-standard scripts
+	for _, txOut := range tx.MsgTx().TxOut {
+		scriptClass := txscript.GetScriptClass(txOut.PkScript)
+		if scriptClass == txscript.NonStandardTy {
+			return true
+		}
+	}
+
+	return false
+
+}
+
+//is...returns wherther or not passed block is a good
+//checkpoint candidate.
+//the factors used to determine a good checkpoint are:
+//the block must be in the main chain.
+//the block must be at leat "checkpointconfirmations"block prior to the
+//current end of the main chain.
+
+//the intent is that candicates are reviewed by a development to make
+//the final decision and then manually added to the list of checkpoint
+//for a newwork.
+//this fucntion is safe for concurrent access.
+
+func (b *BlockChain) IsCheckpointCandidate(block *btcutil.Block) (bool, error) {
+
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	//a checkpoint must be in the main chain
+	node := b.index.LookupNode(block.Hash())
+	if node == nil || !b.bestChain.Contains(node) {
+		return false, nil
+	}
+
+	//ensure the hegith of passed block and the entry for the block in
+	//the main chain match ,this should always the case unless the caller
+	//provided an invalid block.
+	if node.height != block.Height() {
+		return false, fmt.Errorf("passed block height of %d does not "+
+			"match the main chain height of %d", block.Height(), node.height)
+
+	}
+
+	//a checkpoint must be at least checkpointconfirmations blocks
+	//before the end of teh main chain.
+	mainChainHeight := b.bestChain.Tip().height
+	if node.height > (mainChainHeight - CheckpointConfirmations) {
+		return false, nil
+	}
+
+	//a checkpoint must be have at least one block after it.
+	//this should alwys succed since the check above already made
+	//sure it is checkponitconfirmation back.but be safe in case the constan
+	//change.
+	nextNode := b.bestChain.Next(node)
+	if nextNode == nil {
+		return false, nil
+	}
+
+	//a checkpoint munst be have at least one block before it .
+	if node.parent == nil {
+		return false, nil
+	}
+
+	//a checkpoint must timestapms for the block and the blocks on the
+	//either side of it in order (due to the median time allowance this is
+	//not always the case)
+	prevTime := time.Unix(node.parent.timestamp, 0)
+	curTime := block.MsgBlock().Header.Timestamp
+	nextTime := time.Unix(nextNode.timestamp, 0)
+	if prevTime.After(curTime) || nextTime.Before(curTime) {
+		return false, nil
+	}
+
+	//a checkpoint must have transaction that olny contain standared
+	//scripts.
+	for _, tx := range block.Transactions() {
+		if isNonstandardTransaction(tx) {
+			return false, nil
+		}
+	}
+
+	//all of the checks passed. so the block is a candidate.
+
+	return true, nil
+
+}
+//over
 
