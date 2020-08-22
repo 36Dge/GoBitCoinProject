@@ -1,9 +1,12 @@
 package blockchain
 
 import (
+	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
 	"math/big"
+	"sort"
+	"sync"
 	"time"
 )
 
@@ -162,6 +165,207 @@ func (node *blockNode)Ancestor(height int32) *blockNode  {
 func (node *blockNode)RelativeAncestor (distance int32)*blockNode  {
 	return node.Ancestor(node.height - distance)
 }
+
+//calcPastMediantime calculates the median time of the previous few blocks
+//prior to .and inculding the block node.
+func (node *blockNode)CalcPastMedianTime()time.Time  {
+	//create a slice of the previous few block timesstamps used to calclate
+	//the median per the number defined by the constant medaintimeblocks
+	timestamps := make([]int64,medianTimeBlocks)
+	numNode := 0
+	iterNode := node
+	for i := 0; i< medianTimeBlocks && iterNode != nil;i++{
+		timestamps[i] = iterNode.timestamp
+		numNode++
+	}
+
+	iterNode = iterNode.parent
+
+	//prune the slice to the acutal number of availbale timestamps which
+	//will be fewer than desired near the begining of the block chain and
+	//sort them.
+	timestamps = timestamps[:numNode]
+	sort.Sort(timeSorter(timestamps))
+
+	// NOTE: The consensus rules incorrectly calculate the median for even
+	// numbers of blocks.  A true median averages the middle two elements
+	// for a set with an even number of elements in it.   Since the constant
+	// for the previous number of blocks to be used is odd, this is only an
+	// issue for a few blocks near the beginning of the chain.  I suspect
+	// this is an optimization even though the result is slightly wrong for
+	// a few of the first blocks since after the first few blocks, there
+	// will always be an odd number of blocks in the set per the constant.
+	//
+	// This code follows suit to ensure the same rules are used, however, be
+	// aware that should the medianTimeBlocks constant ever be changed to an
+	// even number, this code will be wrong.
+
+	medianTimeBlocks := timestamps[numNode/2]
+	return time.Unix(medianTimeBlocks,0)
+
+}
+
+//blockindex provides facilities for keeping track of in-memory index of the
+//block chain although the name block chain sigle chain of blocks .it is actually
+//a tree-shaped structure where any node can have mulipiple children .however ,
+//there can only be one active branch which does indeed form a chain from the tip
+//all the way back to the genesis block.
+type blockIndex struct {
+
+	//the flowing fields are set when the instance is crated and can not
+	//be changed afeterwards . so there is no need to protect them with a
+	//septrate mutex.
+	db database.DB
+	chainParams *chaincfg.Params
+
+	sync.RWMutex
+	index map[chainhash.Hash]*blockNode
+	dirty map[*blockNode]struct{}
+
+}
+
+//newblockindex returns a new empty instance of a block index ,the index will
+//be dynamiccally populated as block nodes are loaded from the datebase and manually added/
+func newBlockIndex(db database.DB,chainParams *chaincfg.Params) *blockIndex  {
+	return &blockIndex{
+		db:          db,
+		chainParams: chainParams,
+		index:       make(map[chainhash.Hash]*blockNode),
+		dirty:       make(map[*blockNode]struct{}),
+	}
+}
+
+//haveblock returns whether or not the block index contians the provided hash
+//this function is safe for concurrent access.
+func (bi *blockIndex)HaveBlock(hash *chainhash.Hash)bool  {
+	bi.RLock()
+	_,hasBlock := bi.index[*hash]
+	bi.RUnlock()
+	return hasBlock
+}
+
+//lookupnode returns the block node identified by the provided hash .it will
+//return nil if there is no entry for the hash.
+//this function is safe for concrrent access.
+func (bi *blockIndex)LookupNode(hash *chainhash.Hash)*blockNode  {
+	bi.RLock()
+	node := bi.index[*hash]
+	bi.RUnlock()
+	return node
+}
+
+
+//addnode adds the provided node to the block index and marks it as dirty .
+//dupliacte entries are not checked so it is up to caller to avoid adding them
+//this function is safe for concurrent access.
+func (bi *blockIndex)AddNode(node *blockNode)  {
+	bi.Lock()
+	bi.AddNode(node)
+	bi.dirty[node] = struct{}{}
+	bi.Unlock()
+}
+
+//addnode adds the proviede node to the blcok index .but does not mark it as
+//dirty this can be used while initialzing the block index.
+func (bi *blockIndex)addNode (node *blockNode)  {
+	bi.index[node.hash] = node
+}
+
+//nodestatus provided concurrent-safe access to the status field of a node.
+func (bi *blockIndex)NodeStatus(node *blockNode)blockStatus  {
+	bi.RLock()
+	status := node.status
+	bi.RUnlock()
+	return status
+}
+
+//setstatusflags flips the provied status flags on the block node to on .
+//regardless of wherther they were on or off previouly .this does not unset
+//any flags currently on.
+func (bi *blockIndex) SetStatusFlags(node *blockNode, flags blockStatus) {
+	bi.Lock()
+	node.status |= flags
+	bi.dirty[node] = struct{}{}
+	bi.Unlock()
+}
+
+// UnsetStatusFlags flips the provided status flags on the block node to off,
+// regardless of whether they were on or off previously.
+//
+// This function is safe for concurrent access.
+func (bi *blockIndex) UnsetStatusFlags(node *blockNode, flags blockStatus) {
+	bi.Lock()
+	node.status &^= flags
+	bi.dirty[node] = struct{}{}
+	bi.Unlock()
+}
+
+
+
+// flushToDB writes all dirty block nodes to the database. If all writes
+// succeed, this clears the dirty set.
+func (bi *blockIndex) flushToDB() error {
+	bi.Lock()
+	if len(bi.dirty) == 0 {
+		bi.Unlock()
+		return nil
+	}
+
+	err := bi.db.Update(func(dbTx database.Tx) error {
+		for node := range bi.dirty {
+			err := dbStoreBlockNode(dbTx, node)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	// If write was successful, clear the dirty set.
+	if err == nil {
+		bi.dirty = make(map[*blockNode]struct{})
+	}
+
+	bi.Unlock()
+	return err
+}
+
+//over
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
