@@ -2,6 +2,7 @@ package blockchain
 
 import (
 	"BtcoinProject/chaincfg/chainhash"
+	"bytes"
 	"github.com/btcsuite/btcutil"
 	"math"
 )
@@ -153,4 +154,37 @@ func BulidMerkleTreeStore(transactions []*btcutil.Tx, witness bool) []*chainhash
 
 }
 
+//extractwitness atttempt ot locate and return the witness commitness for a
+//block the witness commitment is of the form :sha256(witness root || witness nonce)
+//the function additionaly returns a boolena indicating if the witness root wa
+//located within any of the txoutis in the passed transaction .the witness
+//commitment is stored as the data push for an op—return with special magin
+//bytes to aide in location.
+func ExtractWitnessCommitment(tx *btcutil.Tx) ([]byte, bool) {
+	//the witness commitment must be located within one of the coinbase
+	//transaction.outputs.
+	if !IsCoinBase(tx) {
+		return nil, false
+	}
 
+	msgTx := tx.MsgTx()
+	for i := len(msgTx.TxOut) - 1; i >= 0; i-- {
+		//the public key script that contains the witness commitment must
+		//shared a prefix with the witnessmagicbytes and be at least 38 bytes.
+		pkScript := msgTx.TxOut[i].PkScritp
+		if len(pkScript) >= CoinbaseWitnessPkScriptLength &&
+			bytes.HasPrefix(pkScript, WitnessMagicBytes) {
+
+			//the witness commitment iteself is a 32-bytes hash
+			//diretly after the witnessmagincebytes .the remaining
+			//bytes beyond the 38th byte currently have no consensus
+			//meaning
+			start := len(WitnessMagicBytes)
+			end := CoinbaseWitnessPkScriptLength
+			return msgTx.TxOut[i].PkScript[start:end], true
+
+		}
+	}
+	return nil, false
+
+}
