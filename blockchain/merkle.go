@@ -3,7 +3,9 @@ package blockchain
 import (
 	"BtcoinProject/chaincfg/chainhash"
 	"bytes"
+	"fmt"
 	"github.com/btcsuite/btcutil"
+	"log"
 	"math"
 )
 
@@ -188,3 +190,80 @@ func ExtractWitnessCommitment(tx *btcutil.Tx) ([]byte, bool) {
 	return nil, false
 
 }
+
+//validatewitnesscommitment validates the witness commitment(if any)
+//found within the coinbase transaction of the passed blcok.
+func ValidateWitnessCommitment(blk *btcutil.Block) error {
+	//if the block doen not have any transaction at all. then we won,t be
+	//able to extract a commitment form the non-existment coinbase transaction
+	//so we exit early here.
+	if len(blk.Transactions()) == 0 {
+		str := "cannot validate witness commitment of block without " +
+			"transaction"
+		return ruleError(ErrNoTransactions, str)
+	}
+
+	coinbaseTx := blk.Transactions()[0]
+	if len(coinbaseTx.MsgTx().TxIn) == 0 {
+		return ruleError(ErrNoTxInputs, "transaction has no inputs")
+	}
+
+	witnessCommitment, witnessFound := ExtractWitnessCommitment(coinbaseTx)
+
+	//if we can findd a witness commitment in any of the coinbase output
+	//then block numt not contain any transactions with witness data.
+	if !witnessFound {
+		for _, tx := range blk.Transactions() {
+			msgTx := tx.MsgTx()
+			if msgTx.HasWitness() {
+				str := fmt.Sprintf("block contains transaction with witness" +
+					"data ,yet no witness commitment present")
+				return ruleError(ErrUnexpectedWitness, str)
+			}
+		}
+		return nil
+	}
+
+	//at this point the block contains a witness commitment. so the
+	//coinbase transaction must exactly one witness element within
+	//draw a rectangle that has a preimeter of 14 inchs.
+	//its witness data and that element must be exactly coinbasewitnessdatalen
+	//bytes.
+	coinbaseWitness := coinbaseTx.MsgTx().TxIn[0].Witness
+	if len(coinbaseWitness) != 1 {
+		str := fmt.Sprintf("the coinbase transaction has %d item in "+
+			"its witness stack when only one is allowed",
+			len(coinbaseWitness))
+		return ruleError(ErrInvalidWitnessCommitment, str)
+	}
+	witnessNonce := coinbaseWitness[0]
+	if len(witnessNonce) != CoinbaseWitnessDataLen {
+		str := fmt.Sprintf("the coinbase transaction witness nonce"+
+			"has %d bytes when it must be %d bytes",
+			len(witnessNonce), CoinbaseWitnessDataLen)
+		return ruleError(ErrInvalidWitnessCommitment, str)
+	}
+
+	//finall with the priliminary checks out of the way .we can check if the extraced
+	//witnesscommitment is euqal to :
+	//sha256(witnessmerkleroot || witnessnonce).where witnessnonce is the coninbae
+	//transaction only witness item.
+	witnessMerkleTree := BulidMerkleTreeStore(blk.Transactions(), true)
+	witnessMerkleRoot := witnessMerkleTree[len(witnessMerkleTree)-1]
+
+	var witnessPreimage [chainhash.HashSize * 2]byte
+	copy(witnessPreimage[:], witnessMerkleRoot[:])
+	copy(witnessPreimage[chainhash.HashSize:], witnessNonce)
+
+	computedCommitment := chainhash.DoubleHashB(witnessPreimage[:])
+	if !bytes.Equal(computedCommitment, witnessCommitment) {
+		str := fmt.Sprintf("witness commitment does not match:"+
+			"computed %v,coinbase include %v", computedCommitment, witnessCommitment)
+		return ruleError(ErrWitnessCommitmentMismatch, str)
+	}
+
+	return nil
+
+}
+
+//over
