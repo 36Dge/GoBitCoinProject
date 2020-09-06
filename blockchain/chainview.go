@@ -74,7 +74,7 @@ func (c *chainView) Genesis() *blockNode {
 //tip reurns the current tip block node for the chain view.it will return nil
 //if there is no tip.this only differs form the exproted version in that
 //it is up to the caller to ensure the lock is held.
-func (c *chainView)tip()*blockNode  {
+func (c *chainView) tip() *blockNode {
 	if len(c.nodes) == 0 {
 		return nil
 	}
@@ -82,18 +82,90 @@ func (c *chainView)tip()*blockNode  {
 	return c.nodes[len(c.nodes)-1]
 }
 
-
 //tip returns the current tip block node for the chain view.it will return
 //nil if there is no tip.
-func (c *chainView)Tip() *blockNode {
+func (c *chainView) Tip() *blockNode {
 	c.mtx.Lock()
 	tip := c.tip()
 	c.mtx.Unlock()
 	return tip
 }
 
+//settip sets the chain view to use the provided block node as the
+//current tip and ensure the view is consistent by populating it with
+//the nodes obtained by walking backwards all the way to genesis block
+//as necessary .further calls will only perform the mininum wordk need
+//so swithing between chain tips is effceent this only differm form
+//exported version in that it is up to caller to ensure the lock is held.
+func (c *chainView) setTip(node *blockNode) {
+	if node == nil {
+		//keep the backing array around for potential futrue use.
+		c.nodes = c.nodes[:0]
+		return
+	}
 
+	//crete or resize the slice that will hold the block nodes to the
+	//provided tip height.when creating the slice.it is created with
+	//some additional capacity for the underlying arary as append wuold
+	//do in order to reduce overhead when extending the chain later.
+	//as long as the underlying array hash enough capacity.simply expand or
+	//contract the slice accordingly.the additional capacity is chosen
+	//such that the array should only have to be extended about once a
+	//week.
+	needed := node.height + 1
+	if int32(cap(c.nodes)) < needed {
+		nodes := make([]*blockNode, needed, needed+approxNodeSPerWeek)
+		copy(nodes, c.nodes)
+		c.nodes = nodes
+	} else {
+		prevLen := int32(len(c.nodes))
+		c.nodes = c.nodes[0:needed]
+		for i := prevLen; i < needed; i++ {
+			c.nodes[i] = nil
+		}
+	}
 
+	for node != nil && c.nodes[node.height] != node {
+		c.nodes[node.height] = node
+		node = node.parent
+	}
+
+}
+
+// SetTip sets the chain view to use the provided block node as the current tip
+// and ensures the view is consistent by populating it with the nodes obtained
+// by walking backwards all the way to genesis block as necessary.  Further
+// calls will only perform the minimum work needed, so switching between chain
+// tips is efficient.
+//
+// This function is safe for concurrent access.
+func (c *chainView) SetTip(node *blockNode) {
+	c.mtx.Lock()
+	c.setTip(node)
+	c.mtx.Unlock()
+}
+
+// height returns the height of the tip of the chain view.  It will return -1 if
+// there is no tip (which only happens if the chain view has not been
+// initialized).  This only differs from the exported version in that it is up
+// to the caller to ensure the lock is held.
+//
+// This function MUST be called with the view mutex locked (for reads).
+func (c *chainView) height() int32 {
+	return int32(len(c.nodes) - 1)
+}
+
+// Height returns the height of the tip of the chain view.  It will return -1 if
+// there is no tip (which only happens if the chain view has not been
+// initialized).
+//
+// This function is safe for concurrent access.
+func (c *chainView) Height() int32 {
+	c.mtx.Lock()
+	height := c.height()
+	c.mtx.Unlock()
+	return height
+}
 
 
 
