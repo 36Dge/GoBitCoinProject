@@ -167,6 +167,64 @@ func (c *chainView) Height() int32 {
 	return height
 }
 
+//nodebyheight returns the block node at the specifed height ,nil will be
+//returned if the height does not exit ,this only differm form the exproted
+//version in that it is up to the caller to ensure the lock is held.
+func (c *chainView)nodeByHeight(height int32)*blockNode  {
+	if height < 0 || height >= int32((len(c.nodes))){
+		return nil
+	}
+
+	return c.nodes[height]
+}
+
+// NodeByHeight returns the block node at the specified height.  Nil will be
+// returned if the height does not exist.
+//
+// This function is safe for concurrent access.
+func (c *chainView) NodeByHeight(height int32) *blockNode {
+	c.mtx.Lock()
+	node := c.nodeByHeight(height)
+	c.mtx.Unlock()
+	return node
+}
+
+//equals returns whether or not two chain views are the same .uninitialized
+//views (tip set to nil)are considered euqal.
+func (c *chainView)Equals(other *chainView)bool  {
+	c.mtx.Lock()
+	other.mtx.Lock()
+	equals := len(c.nodes) == len(other.nodes) && c.tip() == other.tip()
+	other.mtx.Unlock()
+	c.mtx.Unlock()
+	return equals
+}
+
+// contains returns whether or not the chain view contains the passed block
+// node.  This only differs from the exported version in that it is up to the
+// caller to ensure the lock is held.
+//
+// This function MUST be called with the view mutex locked (for reads).
+func (c *chainView) contains(node *blockNode) bool {
+	return c.nodeByHeight(node.height) == node
+}
+
+// Contains returns whether or not the chain view contains the passed block
+// node.
+//
+// This function is safe for concurrent access.
+func (c *chainView) Contains(node *blockNode) bool {
+	c.mtx.Lock()
+	contains := c.contains(node)
+	c.mtx.Unlock()
+	return contains
+}
+
+
+
+
+
+
 
 
 
