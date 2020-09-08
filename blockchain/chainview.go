@@ -221,6 +221,48 @@ func (c *chainView) Contains(node *blockNode) bool {
 }
 
 
+// next returns the successor to the provided node for the chain view.  It will
+// return nil if there is no successor or the provided node is not part of the
+// view.  This only differs from the exported version in that it is up to the
+// caller to ensure the lock is held.
+//
+// See the comment on the exported function for more details.
+//
+// This function MUST be called with the view mutex locked (for reads).
+func (c *chainView) next(node *blockNode) *blockNode {
+	if node == nil || !c.contains(node) {
+		return nil
+	}
+
+	return c.nodeByHeight(node.height + 1)
+}
+
+// Next returns the successor to the provided node for the chain view.  It will
+// return nil if there is no successfor or the provided node is not part of the
+// view.
+//
+// For example, assume a block chain with a side chain as depicted below:
+//   genesis -> 1 -> 2 -> 3 -> 4  -> 5 ->  6  -> 7  -> 8
+//                         \-> 4a -> 5a -> 6a
+//
+// Further, assume the view is for the longer chain depicted above.  That is to
+// say it consists of:
+//   genesis -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
+//
+// Invoking this function with block node 5 would return block node 6 while
+// invoking it with block node 5a would return nil since that node is not part
+// of the view.
+//
+// This function is safe for concurrent access.
+func (c *chainView) Next(node *blockNode) *blockNode {
+	c.mtx.Lock()
+	next := c.next(node)
+	c.mtx.Unlock()
+	return next
+}
+
+
+
 
 
 
