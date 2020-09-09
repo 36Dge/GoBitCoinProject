@@ -261,6 +261,74 @@ func (c *chainView) Next(node *blockNode) *blockNode {
 	return next
 }
 
+//findForm returns the final common block betweent the provided node and
+//the chain view.it will return nil if there is no common block,this onl
+//differs form the exproted version in that it is up to the caller to enssure
+//the lock is held.
+//see the exported findfork comments for more detaisl
+func (c *chainView)findFork(node *blockNode)*blockNode  {
+	//no fork point for node that doesn,t exist.
+	if node == nil {
+		return nil
+	}
+
+	//when the height of the passed node is higher than the height of
+	//the tip of the current chain view.walk backwards throght the nodes of
+	//the other chain until the
+
+	// which case there is no common node between the two).
+	//
+	// NOTE: This isn't strictly necessary as the following section will
+	// find the node as well, however, it is more efficient to avoid the
+	// contains check since it is already known that the common node can't
+	// possibly be past the end of the current chain view.  It also allows
+	// this code to take advantage of any potential future optimizations to
+	// the Ancestor function such as using an O(log n) skip list.
+
+	chainHeight := c.height()
+	if node.height > chainHeight {
+		node = node.Ancestor(chainHeight)
+	}
+
+
+	//walk the other chain backwards as long as the current one does not
+	//contain the node or there are no more nodes in which case there is
+	//no common node between the two
+	for node != nil && !c.contains(node){
+		node = node.parent
+	}
+
+	return node
+
+
+
+}
+
+
+
+// FindFork returns the final common block between the provided node and the
+// the chain view.  It will return nil if there is no common block.
+//
+// For example, assume a block chain with a side chain as depicted below:
+//   genesis -> 1 -> 2 -> ... -> 5 -> 6  -> 7  -> 8
+//                                \-> 6a -> 7a
+//
+// Further, assume the view is for the longer chain depicted above.  That is to
+// say it consists of:
+//   genesis -> 1 -> 2 -> ... -> 5 -> 6 -> 7 -> 8.
+//
+// Invoking this function with block node 7a would return block node 5 while
+// invoking it with block node 7 would return itself since it is already part of
+// the branch formed by the view.
+//
+// This function is safe for concurrent access.
+func (c *chainView) FindFork(node *blockNode) *blockNode {
+	c.mtx.Lock()
+	fork := c.findFork(node)
+	c.mtx.Unlock()
+	return fork
+}
+
 
 
 
