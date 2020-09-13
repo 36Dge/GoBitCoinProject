@@ -3,6 +3,7 @@ package blockchain
 import (
 	"BtcoinProject/chaincfg/chainhash"
 	"math/big"
+	"time"
 )
 
 var (
@@ -136,7 +137,7 @@ func BigToCompact(n *big.Int) uint32 {
 // accumulated must be the inverse of the difficulty.  Also, in order to avoid
 // potential division by zero and really small floating point numbers, the
 // result adds 1 to the denominator and multiplies the numerator by 2^256.
-func CalcWork(bits uint32) *big.Int{
+func CalcWork(bits uint32) *big.Int {
 	//return a work value of zero if the passed difficulty bits represent
 	//a negative number ,note this should not happen in practice with valid
 	//blocks but an invalid block could trigger it
@@ -146,23 +147,45 @@ func CalcWork(bits uint32) *big.Int{
 	}
 
 	//(1 << 256) (difficultyNum + 1)
-	denominator := new(big.Int).Add(difficultyNum,bigOne)
-	return new(big.Int).Div(oneLsh256,denominator)
+	denominator := new(big.Int).Add(difficultyNum, bigOne)
+	return new(big.Int).Div(oneLsh256, denominator)
 }
 
+//calceasiestDiifculty calculates the easiest possible difficulty taht
+//a block can have given starting difficult bits and a duraction .it is maninly used to
+//verify that claimed proof of work by a block is sane as compared to a nkown good checkpoint.
+func (b *BlockChain) calcEasiestDifficulty(bits uint32, duration time.Duration) uint32 {
+	//convert types used in the calculations below.
+	durationVal := int64(duration / time.Second)
+	adjustmentFactor := big.NewInt(b.chainParams.RetargetAdjustmentFactor)
 
+	//the test nework rules allow minimum difficulty blocks after more
+	//than twice the desired amount of time needed to generate a block has
+	//elapsed
+	if b.chainParams.ReduceMinDifficulty {
+		reductionTime := int64(b.chainParams.MinDiffReductionTime / time.Second)
 
+		if durationVal > reductionTime {
+			return b.chainParams.PowLimitBits
+		}
+	}
 
+	//since easier difficult equates to higher numbers .the estiest
+	//difficult for a given duration is the largest value possible given
+	//the number of retargets for the duration and starting difficulty
+	//multiplied by the max adjusement factor.
+	newTarget := CompactToBig(bits)
+	for durationVal > 0 && newTarget.Cmp(b.chainParams.PowLimit) < 0 {
+		newTarget.Mul(newTarget, adjustmentFactor)
+		duration -= b.maxRetargetTimespan
 
+	}
 
+	//limit new value to the proof of work limit.
+	if newTarget.Cmp(b.chainParams.PowLimit) > 0 {
+		newTarget.Set(b.chainParams.PowLimit)
+	}
 
+	return BigToCompact(newTarget)
 
-
-
-
-
-
-
-
-
-
+}
