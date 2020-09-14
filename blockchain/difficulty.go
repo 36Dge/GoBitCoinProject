@@ -177,7 +177,7 @@ func (b *BlockChain) calcEasiestDifficulty(bits uint32, duration time.Duration) 
 	newTarget := CompactToBig(bits)
 	for durationVal > 0 && newTarget.Cmp(b.chainParams.PowLimit) < 0 {
 		newTarget.Mul(newTarget, adjustmentFactor)
-		duration -= b.maxRetargetTimespan
+		durationVal -= b.maxRetargetTimespan
 
 	}
 
@@ -187,5 +187,55 @@ func (b *BlockChain) calcEasiestDifficulty(bits uint32, duration time.Duration) 
 	}
 
 	return BigToCompact(newTarget)
+
+}
+
+//findPrevTestNetDIFFICULy returns the difficulty of the previous block with
+//did not have the special testnet minimum difficult rule applied..
+
+//this fuction must be called with the chain state loci held(for writes)
+func (b *BlockChain) findPrevTestNetDifficulty(startNode *blockNode) uint32 {
+	//search backwards throungh the chain for the last block without
+	//the special rule applied.
+	iterNode := startNode
+	for iterNode != nil && iterNode.height%b.blocksPerRetarget != 0 &&
+		iterNode.bits == b.chainParams.PowLimitBits {
+
+		iterNode = iterNode.parent
+	}
+
+	//return the found difficulty or the minimum difficulty if no
+	//appropriate block was found.
+	lastBits := b.chainParams.PowLimitBits
+	if iterNode != nil {
+		lastBits = iterNode.bits
+
+	}
+
+	return lastBits
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//calnnextrequireddifficult calcultes the required difficulty fro the
+//block after the end of the current best chain based on the difficulty retraget
+//rules.
+func (b *blockNode) CalcNextRequireDifficulty(timestamp time.Time) (uint32, error) {
+
+	b.chainLock.Lock()
+	difficulty, err := b.calcNextRequireDifficulty(b.bestChain.Tip(), timestamp)
+	b.chainLock.Unlock()
+	return difficulty, err
 
 }
