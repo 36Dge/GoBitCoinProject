@@ -135,6 +135,24 @@ const(
 )
 
 
+// -----------------------------------------------------------------------------
+// Compressed transaction outputs consist of an amount and a public key script
+// both compressed using the domain specific compression algorithms previously
+// described.
+//
+// The serialized format is:
+//
+//   <compressed amount><compressed script>
+//
+//   Field                 Type     Size
+//     compressed amount   VLQ      variable
+//     compressed script   []byte   variable
+// -----------------------------------------------------------------------------
+
+// compressedTxOutSize returns the number of bytes the passed transaction output
+// fields would take when encoded with the format described above.
+
+
 
 
 
