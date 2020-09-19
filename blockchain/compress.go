@@ -126,13 +126,67 @@ func deserializeVLQ(serialized []byte) (uint64, int) {
 //serialized and must be stable for long-term storage.
 const(
 
+	//cstpaytopubkeyhash identify a compressed pay to pubkey hahs script.
+	cstPayToPubKeyHash = 0
 
+	//cstpaytoscripthash identify a compressed pay-to-script hash script.
+	cstPayToScritpHash = 1
 
+	//cstpaytopubkeycomp2 identifies a compressed pat-to-pubkey script to a
+	//compressed pubkey ,bit 0 spcecifies which y-coordinate to use to reconstruct the
+	//full uncompressed pubkey.
+	cstPayToPubKeyComp2 = 2
 
+	// cstPayToPubKeyComp3 identifies a compressed pay-to-pubkey script to
+	// a compressed pubkey.  Bit 0 specifies which y-coordinate to use
+	// to reconstruct the full uncompressed pubkey.
+	cstPayToPubKeyComp3 = 3
 
+	// cstPayToPubKeyUncomp4 identifies a compressed pay-to-pubkey script to
+	// an uncompressed pubkey.  Bit 0 specifies which y-coordinate to use
+	// to reconstruct the full uncompressed pubkey.
+	cstPayToPubKeyUncomp4 = 4
+
+	// cstPayToPubKeyUncomp5 identifies a compressed pay-to-pubkey script to
+	// an uncompressed pubkey.  Bit 0 specifies which y-coordinate to use
+	// to reconstruct the full uncompressed pubkey.
+	cstPayToPubKeyUncomp5 = 5
+
+	//numspecialscripts is the number of special scripts recognized by the
+	//domain-specific script compression algorithm .
+	numSpecialScript = 6
 
 
 )
+
+//ispubkeyhash returns wherther or not the passed public key script is a
+//standard pay-to-pubkey-hash along with the pubkey hash it is paying to
+//if it is.
+func isPubKeyHash(script []byte)(bool,[]byte){
+	if len(script) == 25
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 // -----------------------------------------------------------------------------
