@@ -1,5 +1,10 @@
 package blockchain
 
+import (
+	"BtcoinProject/txscript"
+	"golang.org/x/text/language"
+)
+
 // -----------------------------------------------------------------------------
 // A variable length quantity (VLQ) is an encoding that uses an arbitrary number
 // of binary octets to represent an arbitrarily large integer.  The scheme
@@ -40,14 +45,13 @@ package blockchain
 //serializedsize returns the number of bytes it would to serialize the
 //passed number as a variable-length quantitiy according to the format desscribed
 //above.
-func serializeSizeVLQ(n int64)int  {
+func serializeSizeVLQ(n uint64) int {
 	size := 1
-	for ;n >0x7f;n = n(n >> 7) -1 {
+	for ; n > 0x7f; n = n(n>>7) - 1 {
 		size++
 	}
-	return  size
+	return size
 }
-
 
 // putVLQ serializes the provided number to a variable-length quantity according
 // to the format described above and returns the number of bytes of the encoded
@@ -124,7 +128,7 @@ func deserializeVLQ(serialized []byte) (uint64, int) {
 //special script type in the domain-specific compressed script encoding
 //note:this section sepcifically does not use iota since these values are
 //serialized and must be stable for long-term storage.
-const(
+const (
 
 	//cstpaytopubkeyhash identify a compressed pay to pubkey hahs script.
 	cstPayToPubKeyHash = 0
@@ -154,40 +158,101 @@ const(
 
 	//numspecialscripts is the number of special scripts recognized by the
 	//domain-specific script compression algorithm .
-	numSpecialScript = 6
-
-
+	numSpecialScripts = 6
 )
 
 //ispubkeyhash returns wherther or not the passed public key script is a
 //standard pay-to-pubkey-hash along with the pubkey hash it is paying to
 //if it is.
-func isPubKeyHash(script []byte)(bool,[]byte){
-	if len(script) == 25
+func isPubKeyHash(script []byte) (bool, []byte) {
+	if len(script) == 25 && script[0] == txscript.OP_DUP &&
+		script[1] == txscript.OP_HASH160 &&
+		script[2] == txscript.OP_DATA_20 &&
+		script[23] == txscript.OP_EQUALVERIFY &&
+		script[24] == txscript.OP_CHECKSIG {
+		return true, script[3:23]
+	}
+
+	return false, nil
 
 }
 
+//isscriptHash returns whether or not the passed public key script is a standard pay
+//to -scirpt along with the scirpt hash it is paying to
+//if it is .
+func isScriptHash(script []byte) (bool, []byte) {
+	if len(script) == 23 && script[0] == txscript.OP_HASH160 &&
+		script[1] == txscript.OP_DATA_20 &&
+		script[22] == txscript.OP_EQUAL {
+		return true, script[2:22]
+	}
+	return false, nil
+}
 
+//isPubkey returns whether or not the passed public key script is a standard
+//payt to pubkey script that pays to a valid compressed or uncompressed public
+//key along with the serialized pubkey it is paying to if it is.
 
+//note:this fucntion ensures the public key is actulaaly valid since the compression
+//algorithm require valid pubkeys.it does not suport hybrid pubkeys this means
+//that even if the script has the corrent form for a pay_to_public script .this
+//function will only returns true when it is paying to a valid compressed or unpressed public.
 
+func isPubKey(script []byte) (bool, []byte) {
+	//payt -to -compressed pubkey script.
+	if len(script) == 35 && script[0] == txscript.OP_DATA_33 &&
+		script[34] == txscript.OP_CHECKSIG && (script[1] == 0x02 ||
+		script[1] == 0x03) {
 
+		//ensure the public key is valid.
+		serializeSizePubKey := script[1:34]
+		_, err := btcec.ParsePubKey(serializedPubKey, btcec.S256())
+		if err == nil {
+			return true, serializeSizePubKey
+		}
+	}
 
+	//pay to uncompressed-pubkey script
+	if len(script) == 67 && script[0] == txscript.OP_DATA_65 &&
+		script[66] == txscript.OP_CHECKSIG && script[1] == 0x04 {
 
+		//ensure the public key is valid
+		serializePubKey := script[1:66]
+		_, err := btcec.ParsePubKey(serializedPubKey, btcec.S256())
+		if err == nil {
+			return true, serializePubKey
+		}
+	}
+	return false, nil
+}
 
+//comperssedscriptsize returns the number of bytes the passed script would take
+//when encoded with the domain specific compression algorithm described above.
+func compressedScriptSize(pkScript []byte) int {
 
+	//paytopubkeyhash script
+	if valid, _ := isPubKeyHash(pkScript); valid {
+		return 21
 
+	}
 
+	//paytoscripthash script.
+	if valid, _ := isScriptHash(pkScript); valid {
+		return 21
+	}
 
+	//paytopubkey(compressed and uncompressed)script
+	if valid, _ := isPubKeyHash(pkScript); valid {
+		return 33
+	}
 
+	//when none of the above special cases apply.encode the script as is
+	//preceded by the sum of its size and the number of special cases encoded
+	//as a varibale length quantity.
+	return serializeSizeVLQ(uint64(len(pkScript)+numSpecialScripts)) +
+		len(pkScript)
 
-
-
-
-
-
-
-
-
+}
 
 // -----------------------------------------------------------------------------
 // Compressed transaction outputs consist of an amount and a public key script
@@ -205,40 +270,3 @@ func isPubKeyHash(script []byte)(bool,[]byte){
 
 // compressedTxOutSize returns the number of bytes the passed transaction output
 // fields would take when encoded with the format described above.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
