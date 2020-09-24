@@ -332,18 +332,87 @@ func putCompressedScript(target, pkScript []byte) int {
 
 }
 
+//decompressscript returns the original script obtained by decompressinog the
+//passed compressed socript according to the domain specific compression
+//algorithm described above.
+//Note:the script parameter must be already have been proven to be long enought
+//to contain the number of bytes returned by decodeCompressedScriptsize or it
+//will panic .this is acceptalbe since it is only an internal function.
+func decompressScript(compressedPkScript []byte) []byte {
+	//in practise this function will not be called with a zero-length or
+	//nil script since the nil script encoding includes th length.howenver
+	//the code below assumes the length exists,so just return nil how if
+	//the function ever up being called with a nil script in the future .
+	if len(compressedPkScript) == 0 {
+		return nil
+	}
 
+	//decode the script size and examine it for the special cases.
+	encodeScriptSize, bytesRead := deserializeVLQ(compressedPkScript)
+	switch encodeScriptSize {
 
+	//pay-to-pubkey-hash-script the resulting script is :
+	// <OP_DUP><OP_HASH160><20 byte hash><OP_EQUALVERIFY><OP_CHECKSIG>
+	case cstPayToPubKeyHash:
+		pkScript := make([]byte, 25)
+		pkScript[0] = txscript.OP_DUP
+		pkScript[1] = txscript.OP_HASH160
+		pkScript[2] = txscript.OP_DATA_20
+		copy(pkScript[3:], compressedPkScript[bytesRead:bytesRead+20])
+		pkScript[23] = txscript.OP_EQUALVERIFY
+		pkScript[24] = txscript.OP_CHECKSIG
+		return pkScript
 
+	//pay-to-script-hash script .the resulting script is :
+	// <OP_DUP><OP_HASH160><20 byte hash><OP_EQUALVERIFY><OP_CHECKSIG>
 
+	case cstPayToScritpHash:
+		pkScript := make([]byte, 23)
+		pkScript[0] = txscript.OP_HASH160
+		pkScript[1] = txscript.OP_DATA_20
+		copy(pkScript[2:], compressedPkScript[bytesRead:bytesRead+20])
+		pkScript[22] = txscript.OP_EQUAL
+		return pkScript
 
+		// Pay-to-compressed-pubkey script.  The resulting script is:
+		// <OP_DATA_33><33 byte compressed pubkey><OP_CHECKSIG>
+	case cstPayToPubKeyComp2, cstPayToPubKeyComp3:
+		pkScript := make([]byte, 35)
+		pkScript[0] = txscript.OP_DATA_33
+		pkScript[1] = byte(encodedScriptSize)
+		copy(pkScript[2:], compressedPkScript[bytesRead:bytesRead+32])
+		pkScript[34] = txscript.OP_CHECKSIG
+		return pkScript
 
+	case cstPayToPubKeyUncomp4, cstPayToPubKeyUncomp5:
+		//change the leading byte to the approriate compressed pubkey
+		//idenfitier so it can be decoded as a idenfitier so it can be
+		//decodes as a compressed pubkey.this really shoulld never fail since
+		//the encoding ensures it it valid before compressing to this byte.
+		compressedKey := make([]byte, 33)
+		compressedKey[0] = byte(encodedScriptSize - 2)
+		copy(compressedKey[1:], compressedPkScript[1:])
+		key, err := btcec.ParsePubKey(compressedKey, btcec.S256())
+		if err != nil {
+			return nil
+		}
 
+		pkScript := make([]byte, 67)
+		pkScript[0] = txscript.OP_DATA_65
+		copy(pkScript[1:], key.SerializeUncompressed())
+		pkScript[66] = txscript.OP_CHECKSIG
+		return pkScript
 
+	}
+	//when none of the special cases apply.the script was encoded using
+	//the general format .so reduce the script size by the number of
+	//special cases and return the unmodified script.
+	scriptSize := int(encodedScriptSize - numSpecialScripts)
+	pkScript := make([]byte, scriptSize)
+	copy(pkScript, compressedPkScript[bytesRead:bytesRead+scriptSize])
+	return pkScript
 
-
-
-
+}
 
 // -----------------------------------------------------------------------------
 // Compressed transaction outputs consist of an amount and a public key script
