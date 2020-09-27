@@ -413,7 +413,6 @@ func decompressScript(compressedPkScript []byte) []byte {
 	return pkScript
 
 }
-
 // -----------------------------------------------------------------------------
 // Compressed transaction outputs consist of an amount and a public key script
 // both compressed using the domain specific compression algorithms previously
@@ -473,3 +472,48 @@ func decompressScript(compressedPkScript []byte) []byte {
 
 // compressTxOutAmount compresses the passed amount according to the domain
 // specific compression algorithm described above.
+
+func compressTxOutAmount(amount uint64) uint64{
+	//no need to do any work if it is zero.
+	if amount == 0 {
+		return 0
+	}
+
+	//find the largest power of 10 (max of 9) that envenly divides the
+	//value
+	exponent := uint64(0)
+	for amount % 10 == 0 && exponent < 9 {
+		amount /= 10
+		exponent++
+	}
+
+	//the compressed result for exponents less than 9 is:
+	if exponent < 9 {
+		lastDigit := amount % 10
+		amount /= 10
+		return 1 + 10*(9*amount + lastDigit-1) + exponent
+	}
+
+	//the compressed result for an expont of 9 is :
+	return 10 + 10*(amount - 1)
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
