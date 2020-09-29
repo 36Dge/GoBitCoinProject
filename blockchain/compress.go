@@ -413,6 +413,7 @@ func decompressScript(compressedPkScript []byte) []byte {
 	return pkScript
 
 }
+
 // -----------------------------------------------------------------------------
 // Compressed transaction outputs consist of an amount and a public key script
 // both compressed using the domain specific compression algorithms previously
@@ -473,7 +474,7 @@ func decompressScript(compressedPkScript []byte) []byte {
 // compressTxOutAmount compresses the passed amount according to the domain
 // specific compression algorithm described above.
 
-func compressTxOutAmount(amount uint64) uint64{
+func compressTxOutAmount(amount uint64) uint64 {
 	//no need to do any work if it is zero.
 	if amount == 0 {
 		return 0
@@ -482,7 +483,7 @@ func compressTxOutAmount(amount uint64) uint64{
 	//find the largest power of 10 (max of 9) that envenly divides the
 	//value
 	exponent := uint64(0)
-	for amount % 10 == 0 && exponent < 9 {
+	for amount%10 == 0 && exponent < 9 {
 		amount /= 10
 		exponent++
 	}
@@ -491,29 +492,108 @@ func compressTxOutAmount(amount uint64) uint64{
 	if exponent < 9 {
 		lastDigit := amount % 10
 		amount /= 10
-		return 1 + 10*(9*amount + lastDigit-1) + exponent
+		return 1 + 10*(9*amount+lastDigit-1) + exponent
 	}
 
 	//the compressed result for an expont of 9 is :
-	return 10 + 10*(amount - 1)
-
+	return 10 + 10*(amount-1)
 
 }
 
+//decompresstxoutamount returns the original amount the passed compressed
+//amount represents according to the domain specific compression algorithm
+//described above.
+func decompressTxOutAmount(amount uint64) uint64 {
+	//no need to do any work if it is zero
+	if amount == 0 {
+		return 0
+	}
 
+	// The decompressed amount is either of the following two equations:
+	// x = 1 + 10*(9*n + d - 1) + e
+	// x = 1 + 10*(n - 1)       + 9
+	amount--
 
+	// The decompressed amount is now one of the following two equations:
+	// x = 10*(9*n + d - 1) + e
+	// x = 10*(n - 1)       + 9
 
+	exponent := amount % 10
+	amount /= 10
 
+	// The decompressed amount is now one of the following two equations:
+	// x = 9*n + d - 1  | where e < 9
+	// x = n - 1        | where e = 9
+	n := uint64(0)
+	if exponent < 9 {
+		lastDigit := amount&9 + 1
+		amount /= 9
+		n = amount*10 + lastDigit
 
+	} else {
+		n = amount + 1
+	}
 
+	//apply the expont
+	for ; exponent > 0; exponent-- {
+		n *= 10
+	}
 
+	return n
+}
 
+//compressed transaction outputs consists of amount and a public key script
+//both compressed using the domain specific compression algorithms previously
+//described.
+//the serialized format is :
+//   <compressed amount><compressed script>
+//
+//   Field                 Type     Size
+//     compressed amount   VLQ      variable
+//     compressed script   []byte   variable
+//compressedtxoutsize returns the number of btyes the passed transaction
+//output fields would take when encoded with the format described abloe.
+func compressedTxOutSize(amount uint64, pkScript []byte) int {
+	return serializeSizeVLQ(compressTxOutAmount(amount)) +
+		compressedScriptSize(pkScript)
+}
 
+// putCompressedTxOut compresses the passed amount and script according to their
+// domain specific compression algorithms and encodes them directly into the
+// passed target byte slice with the format described above.  The target byte
+// slice must be at least large enough to handle the number of bytes returned by
+// the compressedTxOutSize function or it will panic.
+func putCompressedTxOut(target []byte, amount uint64, pkScript []byte) int {
+	offset := putVLQ(target, compressTxOutAmount(amount))
+	offset += putCompressedScript(target[offset:], pkScript)
 
+	return offset
 
+}
 
+//decodecompressedtxout decodes the passed compressed txout ,possibly follwed
+//by other data.into its umcompressed amount and script and return them along
+//with the number of bytes they accoupied prior to decompression.
+func decodeCompressedTxOut(serialized []byte) (uint64, []byte, int, error) {
+	//deserialize the compressed amount and ensure there are bytes
+	//remaining for the compressed script.
+	compressedAmount, bytesRead := deserializedVLQ(serialized)
+	if bytesRead >= len(serialized) {
+		return 0, nil, bytesRead, errDeserialize("unexpected end of " +
+			"data after compressed amount")
+	}
 
+	//above the compressed script size and ensure there are enough bytes
+	//left in the slice for it
+	scriptSize := decodeCompressedScriptSize(serialized[bytesRead:])
+	if len(serialized[bytesRead:]) < scriptSize {
+		return 0, nil, bytesRead, errDeserialize("unexpected end of " +
+			"data after script size")
+	}
 
-
-
-
+	//decompress and return and amount and script
+	amount := decompressTxOutAmount(compressedAmount)
+	script := decompressScript(serialized[bytesRead : bytesRead+scriptSize])
+	return amount, script, bytesRead + scriptSize, nil
+}
+//over
