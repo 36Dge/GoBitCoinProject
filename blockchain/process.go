@@ -63,61 +63,62 @@ func (b *BlockChain) blockExists(hash *chainhash.Hash) (bool, error) {
 	return exists, err
 }
 
-// processOrphans determines if there are any orphans which depend on the passed
-// block hash (they are no longer orphans if true) and potentially accepts them.
-// It repeats the process for the newly accepted blocks (to detect further
-// orphans which may no longer be orphans) until there are no more.
-//
-// The flags do not modify the behavior of this function directly, however they
-// are needed to pass along to maybeAcceptBlock.
-//
-// This function MUST be called with the chain state lock held (for writes).
+//processoorphans determines if there any orphans which depned on the passed
+//block hash(they are no longer orphans if true)and potentially accepts them.
+//it repeats the process for the newly acctped blocks(to detect further orpahsn
+//which may no longer be orphans)until there are no more.
+
+//the flags do not modify the behavior of this function diretcly however they
+//are needed to pass along to maybeacceptblock.
+//this function must be called with the chain state lock held(for writes).
+
 func (b *BlockChain) processOrphans(hash *chainhash.Hash, flags BehaviorFlags) error {
-	// Start with processing at least the passed hash.  Leave a little room
-	// for additional orphan blocks that need to be processed without
-	// needing to grow the array in the common case.
+
+	//start with processing at least the passed hash. leave a little room
+	//for additional orphans blocks that need to be processed without needing
+	//to grow the array in the common case.
 	processHashes := make([]*chainhash.Hash, 0, 10)
 	processHashes = append(processHashes, hash)
+
 	for len(processHashes) > 0 {
-		// Pop the first hash to process from the slice.
+		//pop the first hash to process form the slice
 		processHash := processHashes[0]
-		processHashes[0] = nil // Prevent GC leak.
+		processHashes[0] = nil //provent CG leak.
 		processHashes = processHashes[1:]
 
-		// Look up all orphans that are parented by the block we just
-		// accepted.  This will typically only be one, but it could
-		// be multiple if multiple blocks are mined and broadcast
-		// around the same time.  The one with the most proof of work
-		// will eventually win out.  An indexing for loop is
-		// intentionally used over a range here as range does not
-		// reevaluate the slice on each iteration nor does it adjust the
-		// index for the modified slice.
+		//look up all orphans that are parented by the block we just
+		//accepted. this will typically only be one .but it could be multiple
+		//if multiple blocks are mined and broadcast around the same time.
+		//the one win out. an indexing for loop is intentionally used over a
+		//range here as range does not reevalaute the slice on each iteration
+		//nor does it adjust the index for the modified slice.
 		for i := 0; i < len(b.prevOrphans[*processHash]); i++ {
 			orphan := b.prevOrphans[*processHash][i]
 			if orphan == nil {
-				log.Warnf("Found a nil entry at index %d in the "+
-					"orphan dependency list for block %v", i,
-					processHash)
+				log.Warnf("found a nil entry at index %d in the "+
+					"orphan dependency list for block %v", i, processHash)
 				continue
 			}
 
-			// Remove the orphan from the orphan pool.
+			//remove the orphan from the orphan pool
 			orphanHash := orphan.block.Hash()
 			b.removeOrphanBlock(orphan)
 			i--
 
-			// Potentially accept the block into the block chain.
+			//protentially accept the block into the block chain.
 			_, err := b.maybeAcceptBlock(orphan.block, flags)
 			if err != nil {
 				return err
 			}
 
-			// Add this block to the list of blocks to process so
-			// any orphan blocks that depend on this block are
-			// handled too.
+			//add this block to the list of blocks to process so
+			//any orphan blocks that depend on this block are handled too.
 			processHashes = append(processHashes, orphanHash)
+
 		}
+
 	}
+
 	return nil
 }
 
@@ -204,34 +205,34 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 
 	//handle orphan blocks.
 	prevHash := &blockHeader.PrevBlock
-	prevHashExists,err := b.blockExists(prevHash)
-	if err != nil{
+	prevHashExists, err := b.blockExists(prevHash)
+	if err != nil {
 		return false, false, err
 	}
 
 	if !prevHashExists {
-		log.Infof("adding orphan block %v with parent %v",blockHash,prevHash)
+		log.Infof("adding orphan block %v with parent %v", blockHash, prevHash)
 		b.addOrphanBlock(block)
-		return false,true,nil
+		return false, true, nil
 	}
 
 	//the block has passed all context independent checks and appears sane
 	//enough to potentially accept it into the block chain.
-	isMainChain,err := b.maybeAcceptBlock(block,flags)
-	if err != nil{
-		return false,false,err
+	isMainChain, err := b.maybeAcceptBlock(block, flags)
+	if err != nil {
+		return false, false, err
 	}
 
 	//accept any orphan blocks that depend on this block(they are no loger orphans )and repeat for
 	//those accepted blocks until there are no more.
-	err = b.processOrphans(blockHash,flags)
-	if err != nil{
-		return false,false,err
+	err = b.processOrphans(blockHash, flags)
+	if err != nil {
+		return false, false, err
 	}
 
-	log.Debugf("accept block %v",blockHash)
+	log.Debugf("accept block %v", blockHash)
 
-	return isMainChain,false,nil
+	return isMainChain, false, nil
 
 }
 
