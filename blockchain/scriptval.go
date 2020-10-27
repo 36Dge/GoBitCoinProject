@@ -106,4 +106,36 @@ out:
 }
 
 
+// newTxValidator returns a new instance of txValidator to be used for
+// validating transaction scripts asynchronously.
+func newTxValidator(utxoView *UtxoViewpoint, flags txscript.ScriptFlags,
+	sigCache *txscript.SigCache, hashCache *txscript.HashCache) *txValidator {
+	return &txValidator{
+		validateChan: make(chan *txValidateItem),
+		quitChan:     make(chan struct{}),
+		resultChan:   make(chan error),
+		utxoView:     utxoView,
+		sigCache:     sigCache,
+		hashCache:    hashCache,
+		flags:        flags,
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
