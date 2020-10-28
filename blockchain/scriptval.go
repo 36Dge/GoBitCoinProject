@@ -2,8 +2,10 @@ package blockchain
 
 import (
 	"BtcoinProject/wire"
+	"container/list"
 	"fmt"
 	"github.com/btcsuite/btcutil"
+	"runtime"
 )
 
 //txvalidateitem holds a transaction along with which input to validate.
@@ -105,6 +107,67 @@ out:
 	}
 }
 
+//validate validates the scripts for all of the passed transaction inputs
+//using multiple goroutines.
+func (v *txValidator) Validate(items []*txValidateItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	//limit the number of goroutines to do script validation based on the
+	//number of processor cores.this helps ensure the system stays
+	//reasonably responsive under heavy load.
+	maxGoRoutines := runtime.NumCPU() * 3
+	if maxGoRoutines <= 0 {
+		maxGoRoutines = 1
+
+	}
+
+	if maxGoRoutines > len(items) {
+		maxGoRoutines = len(items)
+	}
+
+	//start up validation handlers that are used to asynchronously
+	//validate each transaction input.
+	for i := 0; i < maxGoRoutines; i++ {
+		go v.validateHandler()
+	}
+
+	//validate each of the inputs the quit channes is closed when any
+	//errors occur so all processing goroutines exit regardless of whcih
+	//input had the validation error.
+	numInputs := len(items)
+	currentItem := 0
+	processedItem := 0
+	for processedItem < numInputs {
+		//only send items while there are still items that need to
+		//be processed. the select statement will never select a nil
+		//channel
+		var validateChan chan *txValidateItem
+		var item *txValidateItem
+		if currentItem < numInputs {
+			validateChan = v.validateChan
+			item = items[currentItem]
+
+		}
+
+		select {
+		case validateChan <- item:
+			currentItem++
+		case err := <-v.resultChan:
+			processedItem++
+			if err != nil {
+				close(v.quitChan)
+				return err
+			}
+		}
+
+	}
+
+	close(v.quitChan)
+	return nil
+
+}
 
 // newTxValidator returns a new instance of txValidator to be used for
 // validating transaction scripts asynchronously.
@@ -120,6 +183,15 @@ func newTxValidator(utxoView *UtxoViewpoint, flags txscript.ScriptFlags,
 		flags:        flags,
 	}
 }
+
+//validate
+
+
+
+
+
+
+
 
 
 
