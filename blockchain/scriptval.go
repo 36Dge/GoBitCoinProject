@@ -1,10 +1,12 @@
 package blockchain
 
 import (
+	"BtcoinProject/txscript"
 	"BtcoinProject/wire"
 	"container/list"
 	"fmt"
 	"github.com/btcsuite/btcutil"
+	"math"
 	"runtime"
 )
 
@@ -184,25 +186,62 @@ func newTxValidator(utxoView *UtxoViewpoint, flags txscript.ScriptFlags,
 	}
 }
 
-//validate
+//validatetransactionscripts validates the scripts for the passed transaction
+//using multiple goortines.
+func ValidateTransactionScripts(tx *btcutil.Tx, utxoView *UtxoViewpoint,
+	flasg txscript.ScriptFlags, sigCache *txscript.SigCache,
+	hashCache *txscript.HashCache) error {
 
+	//first determine if segwit is active according to the scriptFlags.if
+	//it is not then we do not need to interact with the hashchhee.
+	segwitActive := flag&txscript.ScriptVerifyWitness == txscript.ScriptVerifyWitness
 
+	//if the hashcache do not yet hash the sighash midstate for the i
+	//transaction.then we will compute them now so we can re-use
+	//them amougst all worker validaion goroutines.
+	if segwitActive && tx.MsgTx().HasWitness() &&
+		!hashCache.ContainsHashes(tx.Hash()) {
+		hashCache.AddSigHashes(tx.MsgTx())
+	}
 
+	var cachedHashes *txscript.TxSigHashes
+	if segwitActive && tx.MsgTx().HasWitness() {
 
+		// The same pointer to the transaction's sighash midstate will
+		// be re-used amongst all validation goroutines. By
+		// pre-computing the sighash here instead of during validation,
+		// we ensure the sighashes
+		// are only computed once.
+		cachedHashes, _ = hashCache.GetSigHashes(tx.Hash())
 
+	}
 
+	//collect all of the transaction inputs and required information for
+	//validation.
 
+	txIns := tx.MsgTx().TxIn
+	txvalItems := make([]*txValidateItem, 0, len(txIns))
+	for txInIdx, txIn := range txIns {
+		//skip coinbase
+		if txIn.PreviousOutPoint.Index == math.MaxUint32 {
+			continue
+		}
 
+		txVI := &txValidateItem{
+			txInIndex: txInIdx,
+			txIn:      txIn,
+			tx:        tx,
+			sigHashes: cachedHashes,
+		}
+		txValItems = append(txValItems, txVI)
 
+	}
 
+	//validate all of the inputs,
+	validator := newTxValidator(utxoView, falgs, sigCache, hashCache)
+	return validator.validate(txvalItems)
 
-
-
-
-
-
-
-
+}
 
 
 
