@@ -3,10 +3,34 @@ package blockchain
 import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
+	"BtcoinProject/wire"
 	"github.com/btcsuite/btcutil"
 	"sync"
 	"time"
 )
+
+const (
+
+	//blockhdrsize is the size of a block header.this is simply the
+	//constant from wire and is only provided here for convenience since
+	//wire.maxblockheaderpayload is quite long
+	blockHdrSize = wire.MaxBlockHeaderPayload
+
+	//latestutxosetbuctversion is the current version of the utxo set
+	//bucket that is used to track fall unspent outputs.
+	latestUtxoSetBucketVersion = 2
+
+	//latestspendjurnalbucketversion is the curret version of the spend
+	//journal bucket that is used to tranck all spent transaction for use
+	//in reorgs.
+	latestSpendJournalBucketVersion = 1
+)
+
+
+
+
+
+
 
 //BestState包含有关当前最佳块的信息和其他信息
 //从当前最佳块。

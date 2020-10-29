@@ -257,8 +257,7 @@ func checkBlockScripts(block *btcutil.Block, utxoView *UtxoViewpoint,
 	//collect all of the transaction inputs and required information for validation for
 	//all transactions in the block into a single slice.
 	numInputs := 0
-	for_, tx := range block.Transactions()
-	{
+	for _ , tx := range block.Transactions(){
 		numInputs += len(tx.MsgTx().TxIn)
 	}
 	txValItems := make([]*txValidateItem, 0, numInputs)
@@ -303,7 +302,7 @@ func checkBlockScripts(block *btcutil.Block, utxoView *UtxoViewpoint,
 	//validate all of the inputs.
 	validator := newTxValidator(utxoView, scriptFlags, sigCache, hashCache)
 	start := time.Now()
-	if err := validator, validate(txValItems); err != nil {
+	if err := validator. validate(txValItems); err != nil {
 		return err
 	}
 
