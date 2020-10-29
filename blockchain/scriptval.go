@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"math"
 	"runtime"
+	"time"
 )
 
 //txvalidateitem holds a transaction along with which input to validate.
@@ -243,10 +244,86 @@ func ValidateTransactionScripts(tx *btcutil.Tx, utxoView *UtxoViewpoint,
 
 }
 
+//checkBlockScript executes and validate the scirpts for all tranactions in
+//the passed block using multiple goroutines.
+func checkBlockScripts(block *btcutil.Block, utxoView *UtxoViewpoint,
+	scriptFlags txscript.ScriptFlags, sigCache *txscript.SigCache,
+	hashCache *txscript.HashCache) error {
 
+	//first determine if segwit is active according to the scriptFlags .if
+	//it is not then we dont need to interact with the hashcache.
+	segwitActive := scriptFlags&txscript.ScriptVerifyWitness == txscript.ScriptVerifyWitness
 
+	//collect all of the transaction inputs and required information for validation for
+	//all transactions in the block into a single slice.
+	numInputs := 0
+	for_, tx := range block.Transactions()
+	{
+		numInputs += len(tx.MsgTx().TxIn)
+	}
+	txValItems := make([]*txValidateItem, 0, numInputs)
+	for _, tx := range block.Transactions() {
+		hash := tx.Hash()
 
+		//if the hashCache is present ,and it does not yet contain the
+		//partial sigHashes for this transaction.then we add the sighashes
+		//for the transaction .this allows us to take advantange of the potential
+		//speed savings due to the new digest alorithm(bip0143).
+		if segwitActive && tx.HasWitness() && hashCache != nil &&
+			!hashCache.ContainsHashes(hash) {
+			hashCache.AddSigHashes(tx.MsgTx())
+		}
 
+		var cachedHashes *txscript.TxSigHashes
+		if segwitActive && tx.HashWitness() {
+			if hashCache != nil {
+				cachedHashes, _ = hashCache.GetSigHashes(hash)
+			} else {
+				cachedHashes = txscript.NewTxSigHashes(tx.MsgTx())
+			}
+		}
 
+		for txInIdx, txIn := range tx.MsgTx().TxIn {
+			//skip coinbase
+			if txIn.PreviousOutPoint.Index == math.MaxUint32 {
+				continue
+			}
 
+			txVI := &txValidateItem{
+				txInIndex: txInIdx,
+				txIn:      txIn,
+				tx:        tx,
+				sigHashes: cachedHashes,
+			}
+			txValItems = append(txValItems, txVI)
 
+		}
+	}
+
+	//validate all of the inputs.
+	validator := newTxValidator(utxoView, scriptFlags, sigCache, hashCache)
+	start := time.Now()
+	if err := validator, validate(txValItems); err != nil {
+		return err
+	}
+
+	elapsed := time.Since(start)
+
+	log.Tracef("block %v took %v to verify", block.Hash(), elapsed)
+
+	//if the hashache is present.once we have validate the block ,we no
+	//longer need the cached hashes for these transactions.so we pure them form
+	//the cache.
+	if segwitActive && hashCache != nil {
+		for _, tx := range block.Transactions() {
+			if tx.MsgTx().HasWitness() {
+				hashCache.PurgeSigHashed(tx.Hash())
+			}
+		}
+	}
+
+	return nil
+
+}
+
+//over
