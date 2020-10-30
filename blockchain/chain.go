@@ -9,36 +9,40 @@ import (
 	"time"
 )
 
-const (
 
-	//blockhdrsize is the size of a block header.this is simply the
-	//constant from wire and is only provided here for convenience since
-	//wire.maxblockheaderpayload is quite long
-	blockHdrSize = wire.MaxBlockHeaderPayload
+//blocklocator is used to help locate a specific block.the algorithm for
+//buliding the block locator is to used the hashes in reverse order until
+//the genesis block is reached.in order to keep the list of locator hashes
+//to a reasonable number of entries,first the most recent previous 12 block
+//hashes are added ,then the step is doubled each loop interation to exponenttially
+//decrease the number of hashes as a function of the distance from the block
+//being located
 
-	//latestutxosetbuctversion is the current version of the utxo set
-	//bucket that is used to track fall unspent outputs.
-	latestUtxoSetBucketVersion = 2
+// For example, assume a block chain with a side chain as depicted below:
+// 	genesis -> 1 -> 2 -> ... -> 15 -> 16  -> 17  -> 18
+// 	                              \-> 16a -> 17a
+//
+// The block locator for block 17a would be the hashes of blocks:
+// [17a 16a 15 14 13 12 11 10 9 8 7 6 4 genesis]
+type BlockLocator []*chainhash.Hash
 
-	//latestspendjurnalbucketversion is the curret version of the spend
-	//journal bucket that is used to tranck all spent transaction for use
-	//in reorgs.
-	latestSpendJournalBucketVersion = 1
-)
+//orphanblock representes a block that we do not yet have the parent for.
+//it is a normal block plus an expiraction time to prevent caching the orphan
+//forever.
+type orphanBlock struct {
+	block *btcutil.Tx
+	expiration time.Time
+}
 
+//beststate houses information about the current best block and other
+//info related to the state fo the main chain as it exists from the
+//point of view of the current best block.
 
-
-
-
-
-
-//BestState包含有关当前最佳块的信息和其他信息
-//从当前最佳块。
-//BestSnapshot方法可用于获取此信息的访问权限
-//以并发安全的方式，数据不会从下更改。
-//按照函数名的含义，当链状态发生更改时调用方。
-//但是，返回的快照必须被视为不可变的，因为它是
-//由所有呼叫者共享。
+//the bsetsnapshot method can be used to obtain access to this information
+//in a concurrent safe manner and the data will not be changed out formtunder
+//the caller when chain state changes occur as the fucntion name implies.
+//however the returned snapshot must be treated as immutable since it si
+//shared by all caller.
 
 type BestState struct {
 	Hash        chainhash.Hash // 块的哈希值
@@ -50,6 +54,31 @@ type BestState struct {
 	TotalTxns   uint64         //链中Txn的总数
 	MedianTime  time.Time      // 根据calcpastmediantime确定的中间时间
 }
+
+
+//newbeststate returns a new best states instance for the given parameters.
+func newBestState (node *blockNode,blockSize ,blockWeight,numTxns,totalTxns uint64,
+	medianTime time.Time)*BestState {
+	return &BestState{
+		Hash:        node.hash,
+		Height:      node.height,
+		Bits:        node.bits,
+		BlockSize:   blockSize,
+		BlockWeight: blockWeight,
+		NumTxns:     numTxns,
+		TotalTxns:   totalTxns,
+		MedianTime:  medianTime,
+	}
+}
+
+
+
+
+
+
+
+
+
 
 // BlockChain provides functions for working with the bitcoin block chain.
 // It includes functionality such as rejecting duplicate blocks, ensuring blocks
@@ -242,5 +271,25 @@ func (b *BlockChain) LatestBlockLocator() (BlockLocator, error) {
 	b.chainLock.RUnlock()
 	return locator, nil
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
