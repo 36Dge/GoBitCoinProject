@@ -72,14 +72,6 @@ func newBestState (node *blockNode,blockSize ,blockWeight,numTxns,totalTxns uint
 }
 
 
-
-
-
-
-
-
-
-
 // BlockChain provides functions for working with the bitcoin block chain.
 // It includes functionality such as rejecting duplicate blocks, ensuring blocks
 // follow all rules, orphan handling, checkpoint handling, and best chain
@@ -180,6 +172,80 @@ type BlockChain struct {
 	notificationsLock sync.RWMutex
 	notifications     []NotificationCallback
 }
+
+
+//haveblock returns whether or not the chain instance has the block represented
+//by the passed hash. this include checking the various places a block can
+//be likely part of the main chain. on a side chain .or in the orphan pool.
+func (b *BlockChain) HaveBlcok(hash *chainhash.Hash) (bool,error){
+	exists,err := b.blockExists(hash)
+	if err != nil{
+		return false,err
+	}
+
+	return exists || b.IsKnownOrphan(hash),nil
+}
+
+
+// IsKnownOrphan returns whether the passed hash is currently a known orphan.
+// Keep in mind that only a limited number of orphans are held onto for a
+// limited amount of time, so this function must not be used as an absolute
+// way to test if a block is an orphan block.  A full block (as opposed to just
+// its hash) must be passed to ProcessBlock for that purpose.  However, calling
+// ProcessBlock with an orphan that already exists results in an error, so this
+// function provides a mechanism for a caller to intelligently detect *recent*
+// duplicate orphans and react accordingly.
+
+
+//this function is safe for concurrent access.
+func (b *BlockChain) IsKnownOrphan (hash *chainhash.Hash)bool {
+	//protect concurrent access.using a raad lock only so multiple
+	//readers can query without blcoking each other.
+	b.orphansLock.RLock()
+	_,exists := b.orphans[*hash]
+	b.orphanLock.RUnlock()
+
+	return exists
+}
+
+//getorphanroot returns the head of the chain for the provided hash from the
+//map of orphan blocks.
+//this function is safe for concurrent accesss.
+func (b *BlockChain) GetOrphanRoot(hash *chainhash.Hash) *chainhash.Hash{
+	//protect concrurent access. using a read lock only so multiple
+	//readrs can query without blocking each other.
+	b.orphanLock.RLock()
+	defer b.orphanLock.RUnlock()
+
+	//keeping loopping while the parent of each orphaned block is known and id
+	//an orphan iteself
+	orphanRoot := hash
+	prevHash := hash
+	for {
+		orphan,exists := b.orphans[*prevHash]
+		if !exists {
+			break
+		}
+
+		orphanRoot = prevHash
+		prevHash = &orphan.block.MsgBlock().Header.PrevBlock
+	}
+	return  orphanRoot
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 type BlockLocator []*chainhash.Hash
