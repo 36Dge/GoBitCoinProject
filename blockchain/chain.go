@@ -3,12 +3,10 @@ package blockchain
 import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
-	"BtcoinProject/wire"
 	"github.com/btcsuite/btcutil"
 	"sync"
 	"time"
 )
-
 
 //blocklocator is used to help locate a specific block.the algorithm for
 //buliding the block locator is to used the hashes in reverse order until
@@ -30,7 +28,7 @@ type BlockLocator []*chainhash.Hash
 //it is a normal block plus an expiraction time to prevent caching the orphan
 //forever.
 type orphanBlock struct {
-	block *btcutil.Tx
+	block      *btcutil.Block
 	expiration time.Time
 }
 
@@ -55,10 +53,9 @@ type BestState struct {
 	MedianTime  time.Time      // 根据calcpastmediantime确定的中间时间
 }
 
-
 //newbeststate returns a new best states instance for the given parameters.
-func newBestState (node *blockNode,blockSize ,blockWeight,numTxns,totalTxns uint64,
-	medianTime time.Time)*BestState {
+func newBestState(node *blockNode, blockSize, blockWeight, numTxns, totalTxns uint64,
+	medianTime time.Time) *BestState {
 	return &BestState{
 		Hash:        node.hash,
 		Height:      node.height,
@@ -70,7 +67,6 @@ func newBestState (node *blockNode,blockSize ,blockWeight,numTxns,totalTxns uint
 		MedianTime:  medianTime,
 	}
 }
-
 
 // BlockChain provides functions for working with the bitcoin block chain.
 // It includes functionality such as rejecting duplicate blocks, ensuring blocks
@@ -173,19 +169,17 @@ type BlockChain struct {
 	notifications     []NotificationCallback
 }
 
-
 //haveblock returns whether or not the chain instance has the block represented
 //by the passed hash. this include checking the various places a block can
 //be likely part of the main chain. on a side chain .or in the orphan pool.
-func (b *BlockChain) HaveBlcok(hash *chainhash.Hash) (bool,error){
-	exists,err := b.blockExists(hash)
-	if err != nil{
-		return false,err
+func (b *BlockChain) HaveBlock(hash *chainhash.Hash) (bool, error) {
+	exists, err := b.blockExists(hash)
+	if err != nil {
+		return false, err
 	}
 
-	return exists || b.IsKnownOrphan(hash),nil
+	return exists || b.IsKnownOrphan(hash), nil
 }
-
 
 // IsKnownOrphan returns whether the passed hash is currently a known orphan.
 // Keep in mind that only a limited number of orphans are held onto for a
@@ -196,13 +190,12 @@ func (b *BlockChain) HaveBlcok(hash *chainhash.Hash) (bool,error){
 // function provides a mechanism for a caller to intelligently detect *recent*
 // duplicate orphans and react accordingly.
 
-
 //this function is safe for concurrent access.
-func (b *BlockChain) IsKnownOrphan (hash *chainhash.Hash)bool {
+func (b *BlockChain) IsKnownOrphan(hash *chainhash.Hash) bool {
 	//protect concurrent access.using a raad lock only so multiple
 	//readers can query without blcoking each other.
 	b.orphansLock.RLock()
-	_,exists := b.orphans[*hash]
+	_, exists := b.orphans[*hash]
 	b.orphanLock.RUnlock()
 
 	return exists
@@ -211,7 +204,7 @@ func (b *BlockChain) IsKnownOrphan (hash *chainhash.Hash)bool {
 //getorphanroot returns the head of the chain for the provided hash from the
 //map of orphan blocks.
 //this function is safe for concurrent accesss.
-func (b *BlockChain) GetOrphanRoot(hash *chainhash.Hash) *chainhash.Hash{
+func (b *BlockChain) GetOrphanRoot(hash *chainhash.Hash) *chainhash.Hash {
 	//protect concrurent access. using a read lock only so multiple
 	//readrs can query without blocking each other.
 	b.orphanLock.RLock()
@@ -222,140 +215,100 @@ func (b *BlockChain) GetOrphanRoot(hash *chainhash.Hash) *chainhash.Hash{
 	orphanRoot := hash
 	prevHash := hash
 	for {
-		orphan,exists := b.orphans[*prevHash]
-		if !exists {
-			break
-		}
-
-		orphanRoot = prevHash
-		prevHash = &orphan.block.MsgBlock().Header.PrevBlock
-	}
-	return  orphanRoot
-
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-type BlockLocator []*chainhash.Hash
-
-//孤立块表示我们还没有父块的块。它是一个普通块加上
-//一个过期时间以防止缓存孤立块永远
-
-type orphanBlock struct {
-	block      *btcutil.Block
-	expiration time.Time
-}
-
-
-// GetOrphanRoot returns the head of the chain for the provided hash from the
-// map of orphan blocks.
-//
-// This function is safe for concurrent access.
-func (b *BlockChain) GetOrphanRoot(hash *chainhash.Hash) *chainhash.Hash {
-	// Protect concurrent access.  Using a read lock only so multiple
-	// readers can query without blocking each other.
-	b.orphanLock.RLock()
-	defer b.orphanLock.RUnlock()
-
-	// Keep looping while the parent of each orphaned block is
-	// known and is an orphan itself.
-	orphanRoot := hash
-	prevHash := hash
-	for {
 		orphan, exists := b.orphans[*prevHash]
 		if !exists {
 			break
 		}
+
 		orphanRoot = prevHash
 		prevHash = &orphan.block.MsgBlock().Header.PrevBlock
 	}
-
 	return orphanRoot
+
 }
 
+//removeorphanblock removes the passed orphan block from the orphan pool
+//and previous orphan index.
+func (b *BlockChain) removeOrphanBlock(orphan *orphanBlock) {
+	//protect concurrent access
+	b.orphanLock.Lock()
+	defer b.orphanLock.Unlock()
 
+	//remove the orphan block from the orphan pool
+	orphanHash := orphan.block.Hash()
+	delete(b.orphans, *orphanHash)
 
-// IsKnownOrphan returns whether the passed hash is currently a known orphan.
-// Keep in mind that only a limited number of orphans are held onto for a
-// limited amount of time, so this function must not be used as an absolute
-// way to test if a block is an orphan block.  A full block (as opposed to just
-// its hash) must be passed to ProcessBlock for that purpose.  However, calling
-// ProcessBlock with an orphan that already exists results in an error, so this
-// function provides a mechanism for a caller to intelligently detect *recent*
-// duplicate orphans and react accordingly.
-//
-// This function is safe for concurrent access.
-func (b *BlockChain) IsKnownOrphan(hash *chainhash.Hash) bool {
-	// Protect concurrent access.  Using a read lock only so multiple
-	// readers can query without blocking each other.
-	b.orphanLock.RLock()
-	_, exists := b.orphans[*hash]
-	b.orphanLock.RUnlock()
+	//remove the reference form the previous orphan index too. an indexing
+	//for loop is intentionally used over a range here as range does not
+	//reevaluate the slice on each interation nor does it adjust the index
+	//for the modified slice.
+	prevHash := &orphan.block.MsgBlock().Header.PrevBlock
+	orphans := b.prevOrphans[*prevHash]
+	for i := 0; i < len(orphans); i++ {
+		hash := orphans[i].block.Hash()
+		if hash.IsEqual(orphanHash) {
+			copy(orphans[i:], orphans[i+1:])
+			orphans[len(orphans)-1] = nil
+			orphans = orphans[:len(orphans)-1]
+			i--
+		}
+	}
 
-	return exists
+	b.prevOrphans[*prevHash] = orphans
+
+	//remove the map entry altogether if there are no longer any orphans
+	//which depned on the parent hash.
+	if len(b.prevOrphans[*prevHash]) == 0 {
+		delete(b.prevOrphans, *prevHash)
+	}
+
 }
 
+//addorphanblock adds the passed block (which is already determinded to be
+//an orphan prior calling this function)to the orphan pool. it lazily cleans
+//up any expired blocks as a separate cleanup poller do not need to be run.
+//it also imposes a maximum limit on the number of outstnading orphan
+//blocks and will the oldest received orphans block if the limit is excessecd.
+func (b *BlockChain) addOrphanBlock(block *btcutil.Block) {
+	//remove expired orphan blocks.
+	for _, oBlock := range b.orphans {
+		if time.Now().After(oBlock.expiration) {
+			b.removeOrphanBlock(oBlock)
+			continue
+		}
 
+		//update the oldeset orphan block pointer so it can be discarded
+		//in case the orphan pool fills up.
+		if b.oldestOrphan == nil || oBlock.expiration.Before(b.oldestOrphan.expiration) {
+			b.oldestOrphan = oBlock
+		}
 
-// BlockLocatorFromHash returns a block locator for the passed block hash.
-// See BlockLocator for details on the algorithm used to create a block locator.
-//
-// In addition to the general algorithm referenced above, this function will
-// return the block locator for the latest known tip of the main (best) chain if
-// the passed hash is not currently known.
-//
-// This function is safe for concurrent access.
-func (b *BlockChain) BlockLocatorFromHash(hash *chainhash.Hash) BlockLocator {
-	b.chainLock.RLock()
-	node := b.index.LookupNode(hash)
-	locator := b.bestChain.blockLocator(node)
-	b.chainLock.RUnlock()
-	return locator
+	}
+
+	//limit orphan blocks to prevent memory exhaustion.
+	if len(b.orphans)+1 > maxOrphanBlocks {
+		//remove the oldest orphan to make room for the new one.
+		b.removeOrphanBlock(b.oldestOrphan)
+		b.oldestOrphan = nil
+	}
+
+	// Protect concurrent access.  This is intentionally done here instead
+	// of near the top since removeOrphanBlock does its own locking and
+	// the range iterator is not invalidated by removing map entries.
+	b.orphanLock.Lock()
+	defer b.orphanLock.Unlock()
+
+	//insert the block into the orphan map with an exporation time
+	//1 hour from now.
+	expiration := time.Now().Add(time.Hour)
+	oBlock := &orphanBlock{
+		block:      block,
+		expiration: expiration,
+	}
+	b.orphans[*block.Hash()] = oBlock
+
+	//add to previous hash lookup index for faster dependency lookups.
+	prevHash := &block.MsgBlock().Header.PrevBlock
+	b.prevOrphans[*prevHash] = append(b.prevOrphans[*prevHash], oBlock)
+
 }
-
-
-
-// LatestBlockLocator returns a block locator for the latest known tip of the
-// main (best) chain.
-//
-// This function is safe for concurrent access.
-func (b *BlockChain) LatestBlockLocator() (BlockLocator, error) {
-	b.chainLock.RLock()
-	locator := b.bestChain.BlockLocator(nil)
-	b.chainLock.RUnlock()
-	return locator, nil
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
