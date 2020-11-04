@@ -341,6 +341,10 @@ func (b *BlockChain) CalcSequenceLock(tx *btcutil.Tx, utxoView *UtxoViewpoint, m
 	return b.calcSequenceLock(b.bestChain.Tip(), tx, utxoView, mempool)
 }
 
+// calcSequenceLock computes the relative lock-times for the passed
+// transaction. See the exported version, CalcSequenceLock for further details.
+//
+// This function MUST be called with the chain state lock held (for writes).
 
 
 
