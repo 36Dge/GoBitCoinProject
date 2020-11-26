@@ -5,8 +5,10 @@ import (
 	"BtcoinProject/wire"
 	"container/list"
 	"encoding/binary"
+	"encoding/json"
 	"math/rand"
 	"net"
+	"os"
 	"sync"
 	"time"
 )
@@ -253,23 +255,36 @@ func (a *AddrManager) expireNew(bucket int) {
 		}
 	}
 
-	if oldest != nil{
+	if oldest != nil {
 		key := NetAddressKey{oldest.na}
-		log.Tracef("expiring oldest address %v",key)
+		log.Tracef("expiring oldest address %v", key)
 
-		delete(a.addrNew[bucket],key)
+		delete(a.addrNew[bucket], key)
 		oldest.refs--
 		if oldest.refs == 0 {
 			a.nNew--
-			delete(a.addrIndex,key)
+			delete(a.addrIndex, key)
 		}
 
 	}
 
+}
 
+//pickedtried selects an address from the tried buckect to be evicted .
+//we just choose the eldest .bitcoind selects 4 rondom entries and throw away
+//the oldest of them.
+func (a *AddrManager) pickTried(bucket int) *list.Element {
+	var oldest *KnownAddress
+	var oldestElem *list.Element
+	for e := a.addrTried[bucket].Front(); e != nil; e = e.Next() {
+		ka := e.Value.(*KnownAddress)
+		if oldest == nil || oldest.na.Timestamp.After(ka.na.Timestamp) {
+			oldestElem = e
+			oldest = ka
+		}
+	}
 
-
-
+	return oldestElem
 }
 
 func (a *AddrManager) getNewBucket(netAddr, srcAddr *wire.NetAddress) int {
@@ -292,4 +307,112 @@ func (a *AddrManager) getNewBucket(netAddr, srcAddr *wire.NetAddress) int {
 
 	hash2 := chainhash.DoubleHashB(data2)
 	return int(binary.LittleEndian.Uint64(hash2) % newBucketCount)
+}
+
+func (a *AddrManager) getTriedBucket(netAddr *wire.NetAddress) int {
+	// bitcoind hashes this as:
+	// doublesha256(key + group + truncate_to_64bits(doublesha256(key)) % buckets_per_group) % num_buckets
+	data1 := []byte{}
+	data1 = append(data1, a.key[:]...)
+	data1 = append(data1, []byte(NetAddressKey(netAddr))...)
+	hash1 := chainhash.DoubleHashB(data1)
+	hash64 := binary.LittleEndian.Uint64(hash1)
+	hash64 %= triedBucketsPerGroup
+	var hashbuf [8]byte
+	binary.LittleEndian.PutUint64(hashbuf[:], hash64)
+	data2 := []byte{}
+	data2 = append(data2, a.key[:]...)
+	data2 = append(data2, GroupKey(netAddr)...)
+	data2 = append(data2, hashbuf[:]...)
+
+	hash2 := chainhash.DoubleHashB(data2)
+	return int(binary.LittleEndian.Uint64(hash2) % triedBucketCount)
+}
+
+//addresshanlder is the main hanler for the address manager .it must be ran
+//as a goroutine.
+func (a *AddrManager) addressHandler() {
+	dumpAddressTicker := time.NewTimer(dumpAddressInterval)
+	defer dumpAddressTicker.Stop()
+
+out:
+	for {
+
+		select {
+		case <-dumpAddressTicker.C:
+			a.savePeers()
+
+		case <-a.quit:
+			break out
+
+		}
+
+	}
+	a.savePeers()
+	a.wg.Done()
+	log.Trace("address handler done")
+
+}
+
+//savePeers saves all the knonwn addresses to a file so they can be read back in at inext run
+
+func (a *AddrManager) savePeers() {
+	a.mtx.Lock()
+	defer a.mtx.Unlock()
+
+	// First we make a serialisable datastructure so we can encode it to
+	// json.
+	sam := new(serializedAddrManager)
+	sam.Version = a.version
+	copy(sam.Key[:], a.key[:])
+
+	sam.Addresses = make([]*serializedKnownAddress, len(a.addrIndex))
+	i := 0
+	for k, v := range a.addrIndex {
+		ska := new(serializedKnownAddress)
+		ska.Addr = k
+		ska.TimeStamp = v.na.Timestamp.Unix()
+		ska.Src = NetAddressKey(v.srcAddr)
+		ska.Attempts = v.attempts
+		ska.LastAttempt = v.lastattempt.Unix()
+		ska.LastSuccess = v.lastsuccess.Unix()
+		if a.version > 1 {
+			ska.Services = v.na.Services
+			ska.SrcServices = v.srcAddr.Services
+		}
+		// Tried and refs are implicit in the rest of the structure
+		// and will be worked out from context on unserialisation.
+		sam.Addresses[i] = ska
+		i++
+	}
+	for i := range a.addrNew {
+		sam.NewBuckets[i] = make([]string, len(a.addrNew[i]))
+		j := 0
+		for k := range a.addrNew[i] {
+			sam.NewBuckets[i][j] = k
+			j++
+		}
+	}
+	for i := range a.addrTried {
+		sam.TriedBuckets[i] = make([]string, a.addrTried[i].Len())
+		j := 0
+		for e := a.addrTried[i].Front(); e != nil; e = e.Next() {
+			ka := e.Value.(*KnownAddress)
+			sam.TriedBuckets[i][j] = NetAddressKey(ka.na)
+			j++
+		}
+	}
+
+	w, err := os.Create(a.peersFile)
+	if err != nil {
+		log.Errorf("Error opening file %s: %v", a.peersFile, err)
+		return
+	}
+	enc := json.NewEncoder(w)
+	defer w.Close()
+	if err := enc.Encode(&sam); err != nil {
+		log.Errorf("Failed to encode file %s: %v", a.peersFile, err)
+		return
+	}
+
 }
