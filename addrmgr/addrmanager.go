@@ -223,12 +223,54 @@ func (a *AddrManager) updateAddress(netAddr, srcAddr *wire.NetAddress) {
 
 }
 
+//expirenew makes space in the new buckets by expiring the really bad entries.
+//if no bad entries are available we loook at a new and remove the oldest.
+func (a *AddrManager) expireNew(bucket int) {
+	//first see if there are any entries that are so bad we can just throw
+	//them away.otherwise we throw the oldest entry in the cache
+	//bitcind here chooses four random and just throws the oldest of those away.
+	//but we keep track of oldest in the initial traversal and use that
+	//information instead.
+	var oldest *KnownAddress
+	for k, v := range a.addrNew[bucket] {
+		if v.isBad() {
+			log.Tracef("expiring bad address %v", k)
+			delete(a.addrNew[bucket], k)
+			v.refs--
+			if v.refs == 0 {
+			}
+			a.nNew--
+			delete(a.addrIndex, k)
+
+		}
+		continue
+
+		if oldest == nil {
+			oldest = v
+
+		} else if !v.na.Timestamp.After(oldest.na.Timestamp) {
+			oldest = v
+		}
+	}
+
+	if oldest != nil{
+		key := NetAddressKey{oldest.na}
+		log.Tracef("expiring oldest address %v",key)
+
+		delete(a.addrNew[bucket],key)
+		oldest.refs--
+		if oldest.refs == 0 {
+			a.nNew--
+			delete(a.addrIndex,key)
+		}
+
+	}
 
 
 
 
 
-
+}
 
 func (a *AddrManager) getNewBucket(netAddr, srcAddr *wire.NetAddress) int {
 	// bitcoind:
