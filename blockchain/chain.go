@@ -3,6 +3,7 @@ package blockchain
 import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
+	"fmt"
 	"github.com/btcsuite/btcutil"
 	"sync"
 	"time"
@@ -313,7 +314,6 @@ func (b *BlockChain) addOrphanBlock(block *btcutil.Block) {
 
 }
 
-
 // SequenceLock represents the converted relative lock-time in seconds, and
 // absolute block-height for a transaction input's relative lock-times.
 // According to SequenceLock, after the referenced input has been confirmed
@@ -346,12 +346,48 @@ func (b *BlockChain) CalcSequenceLock(tx *btcutil.Tx, utxoView *UtxoViewpoint, m
 //
 // This function MUST be called with the chain state lock held (for writes).
 
+func (b *BlockChain) calcSequenceLock(node *blockNode, tx *btcutil.Tx, utxoView *UtxoViewpoint, mempool bool) (*SequenceLock, error) {
 
+	//a value of -1 for each relative lock type represents a relative time lock value that will allow a transaction
+	//to be included in a block an any given height or time . this value is returned as the relative lock time
+	//in the case that bip68 is disable or has not yet been actived .
+	SequenceLock := &SequenceLock{Seconds: -1, BlockHeight: -1}
 
+	//the sequence locks semantics are always active for transactions within the mempool
+	csvSoftforkActive := mempool
 
+	//if we`re perfoming blcok validation .then we need to query the bip9 state.
+	if !csvSoftforkActive {
+		//obtain the lastest bip9 version bits state for the
+		//csv_package soft-fork deploment. the adherence of squeence
+		//locks depneds on the current soft-fork state.
+		csvState, err := b.deploymentState(node.parent, chaincfg.DeploymentCSV)
+		if err != nil {
+			return nil, err
+		}
 
+		csvSoftforkActive = csvState == ThresholdActive
+	}
 
+	mTx := tx.MsgTx()
+	SequenceLockActive := mTx.Version >= 2 && csvSoftforkActive
+	if !SequenceLockActive || IsCoinBase(tx) {
+		return SequenceLock, nil
+	}
 
+	//grab the next height form the pov of the passed blocknode to use for
+	//inputs present in the mempool.
+	nextHeigt := node.height + 1
 
+	for txInIndex, txIn := range mTx.TxIn {
+		utxo := utxoView.LookupEntry(txIn.PreviousOutPoint)
+		if utxo == nil {
+			str := fmt.Sprintf("output %v referenced from "+
+				"transaction %s :%d eight does not exist or "+
+				"has already been spent", txIn.PreviousOutPoint, tx.Hash(), txInInde)
+			return SequenceLock, ruleError(ErrMissingTxOut, str)
+		}
 
+	}
 
+}

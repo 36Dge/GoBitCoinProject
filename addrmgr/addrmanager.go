@@ -4,14 +4,20 @@ import (
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
 	"container/list"
+	"encoding/base32"
 	"encoding/binary"
 	"encoding/json"
+	"io"
 	"math/rand"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	"fmt"
 )
 
 //addrmanager provides a concurrency safe address manager for caching potential peers on the bitcoin network.
@@ -257,7 +263,7 @@ func (a *AddrManager) expireNew(bucket int) {
 	}
 
 	if oldest != nil {
-		key := NetAddressKey{oldest.na}
+		key := NetAddressKey(oldest.na)
 		log.Tracef("expiring oldest address %v", key)
 
 		delete(a.addrNew[bucket], key)
