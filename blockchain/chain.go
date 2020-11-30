@@ -390,4 +390,9 @@ func (b *BlockChain) calcSequenceLock(node *blockNode, tx *btcutil.Tx, utxoView 
 
 	}
 
+	//if the input height is set to te mempool height ,then we assume the transaction
+	///makes ti into the nex block when evealuating its sequence blocks.
+
+
 }
+
