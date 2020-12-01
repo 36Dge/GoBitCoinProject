@@ -3,6 +3,7 @@ package blockchain
 import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
+	"BtcoinProject/wire"
 	"fmt"
 	"github.com/btcsuite/btcutil"
 	"sync"
@@ -391,8 +392,26 @@ func (b *BlockChain) calcSequenceLock(node *blockNode, tx *btcutil.Tx, utxoView 
 	}
 
 	//if the input height is set to te mempool height ,then we assume the transaction
-	///makes ti into the nex block when evealuating its sequence blocks.
+	//makes ti into the nex block when evealuating its sequence blocks.
 
+	inputHeight := utxo.BlockHeight()
+	if inputHeight == 0x7fffffff {
+		inputHeight = nextHeigt
+	}
+
+	//given a sequence number,we apply the relative time lock mask in order
+	//to obtain the time lock delta required before this input can be spnet.
+	sequenceNum := tx.In.Sequence
+	relativeLock := int64(sequenceNum & wire.SequenceLockTimeMask)
+
+	switch {
+
+	//relative time locks are disabled for this input .so we can
+	//skip any further calculation .
+	case sequenceNum&wire.SequenceLockTimeDisabled == wire.SequenceLockTimeDisabled:
+		continue
+	case:
+
+	}
 
 }
-
