@@ -415,3 +415,22 @@ func (b *BlockChain) calcSequenceLock(node *blockNode, tx *btcutil.Tx, utxoView 
 	}
 
 }
+
+// LockTimeToSequence converts the passed relative locktime to a sequence
+// number in accordance to BIP-68.
+// See: https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki
+//  * (Compatibility)
+func LockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
+	// If we're expressing the relative lock time in blocks, then the
+	// corresponding sequence number is simply the desired input age.
+	if !isSeconds {
+		return locktime
+	}
+
+	// Set the 22nd bit which indicates the lock time is in seconds, then
+	// shift the locktime over by 9 since the time granularity is in
+	// 512-second intervals (2^9). This results in a max lock-time of
+	// 33,553,920 seconds, or 1.1 years.
+	return wire.SequenceLockTimeIsSeconds |
+		locktime>>wire.SequenceLockTimeGranularity
+}
