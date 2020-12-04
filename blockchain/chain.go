@@ -385,35 +385,65 @@ func (b *BlockChain) calcSequenceLock(node *blockNode, tx *btcutil.Tx, utxoView 
 		if utxo == nil {
 			str := fmt.Sprintf("output %v referenced from "+
 				"transaction %s :%d eight does not exist or "+
-				"has already been spent", txIn.PreviousOutPoint, tx.Hash(), txInInde)
+				"has already been spent", txIn.PreviousOutPoint, tx.Hash(), txInIndex)
 			return SequenceLock, ruleError(ErrMissingTxOut, str)
 		}
 
+		//if the input height is set to te mempool height ,then we assume the transaction
+		//makes ti into the nex block when evealuating its sequence blocks.
+
+		inputHeight := utxo.BlockHeight()
+		if inputHeight == 0x7fffffff {
+			inputHeight = nextHeigt
+		}
+
+		//given a sequence number,we apply the relative time lock mask in order
+		//to obtain the time lock delta required before this input can be spnet.
+		sequenceNum := tx.In.Sequence
+		relativeLock := int64(sequenceNum & wire.SequenceLockTimeMask)
+
+		switch {
+
+		//relative time locks are disabled for this input .so we can
+		//skip any further calculation .
+		case sequenceNum&wire.SequenceLockTimeDisabled == wire.SequenceLockTimeDisabled:
+			continue
+		case sequenceNum&wire.SequenceLockTimeIsSeconds == wire.SequenceLockTimeIsSeconds:
+			//this input requires a relative time lock expressed in seconds before it can
+			//be spent. therefore .we neeed to query for the block prior to the one in
+			//which this input was included within so we can compute the past median time or
+			//the block prior to the one which included this referenced output.
+			prevInputHeight := inputHeight - 1
+			if prevInputHeight < 0 {
+				prevInputHeight = 0
+			}
+
+			blockNode := node.Ancestor(prevInputHeight)
+			medianTime := blockNode.CalcPastMedianTime()
+
+			//time based relative time-locks as difined by bip 68 have a time
+			//granularity of relativelockseconds so we shift left by this amount
+			//to convert to the proper relative time-lock .we also subtract one from
+			//the relative lock to maintain the original locktime semantics.
+			timeLockSeconds := (relativeLock << wire.SequenceLockTimeGranularity) - 1
+			timeLock := medianTime.Unix() + timeLockSeconds
+			if timeLock > SequenceLock.Seconds {
+				SequenceLock.Seconds = timeLock
+			}
+
+		default:
+			//the rlative lock-time for this input is expressed in blocks so we
+			//cauculate the relative offset from the input`s height as its converted absolute
+			//lock-time.we subtract one from the relative lock in order to maintain the originnal
+			//locktime semantics.
+			blockHeight := inputHeight + int32(relativeLock-1)
+			if blockHeight > SequenceLock.BlockHeight {
+				SequenceLock.BlockHeight = blockHeight
+			}
+
+		}
 	}
-
-	//if the input height is set to te mempool height ,then we assume the transaction
-	//makes ti into the nex block when evealuating its sequence blocks.
-
-	inputHeight := utxo.BlockHeight()
-	if inputHeight == 0x7fffffff {
-		inputHeight = nextHeigt
-	}
-
-	//given a sequence number,we apply the relative time lock mask in order
-	//to obtain the time lock delta required before this input can be spnet.
-	sequenceNum := tx.In.Sequence
-	relativeLock := int64(sequenceNum & wire.SequenceLockTimeMask)
-
-	switch {
-
-	//relative time locks are disabled for this input .so we can
-	//skip any further calculation .
-	case sequenceNum&wire.SequenceLockTimeDisabled == wire.SequenceLockTimeDisabled:
-		continue
-	case:
-
-	}
-
+	return SequenceLock, nil
 }
 
 // LockTimeToSequence converts the passed relative locktime to a sequence
@@ -434,3 +464,23 @@ func LockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 	return wire.SequenceLockTimeIsSeconds |
 		locktime>>wire.SequenceLockTimeGranularity
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
