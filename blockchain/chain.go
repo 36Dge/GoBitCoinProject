@@ -4,6 +4,7 @@ import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
+	"container/list"
 	"fmt"
 	"github.com/btcsuite/btcutil"
 	"sync"
@@ -465,6 +466,28 @@ func LockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 		locktime>>wire.SequenceLockTimeGranularity
 }
 
+//get reorgannizenodes finds the fork point between the main chain adn
+//the passed node and returns a list of block nodes that would need to be detached
+//from the main chain and a list of block nodes that would need to be
+//attached to the point(which will be the end of the main chain after detaching tthe
+//returned list of block nodes )in order to reorganize the chain such atht the
+//passed node is the new end of the main chain. the lists will be empty if the
+//passed node is not on a side chain.
+//this function may modify node statuses in the block index without fulshing
+
+func (b *BlockChain) getReorganizeNodes(node *blockNode) (*list.List ,*list.List) {
+	attachNodes := list.New()
+	detachNodes := list.New()
+
+	if b.index.NodeStatus(node.parent).KnownInvalid(){
+		b.index.SetStatusFlags(node,statusInvalidAncestor)
+		return detachNodes,attachNodes
+	}
+
+
+
+
+}
 
 
 
