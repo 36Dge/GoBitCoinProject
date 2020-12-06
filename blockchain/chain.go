@@ -475,35 +475,51 @@ func LockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 //passed node is not on a side chain.
 //this function may modify node statuses in the block index without fulshing
 
-func (b *BlockChain) getReorganizeNodes(node *blockNode) (*list.List ,*list.List) {
+func (b *BlockChain) getReorganizeNodes(node *blockNode) (*list.List, *list.List) {
 	attachNodes := list.New()
 	detachNodes := list.New()
 
-	if b.index.NodeStatus(node.parent).KnownInvalid(){
-		b.index.SetStatusFlags(node,statusInvalidAncestor)
-		return detachNodes,attachNodes
+	if b.index.NodeStatus(node.parent).KnownInvalid() {
+		b.index.SetStatusFlags(node, statusInvalidAncestor)
+		return detachNodes, attachNodes
 	}
 
+	//find the fork point (if any) adding each block to the list of nodes
+	//to attach to the main tree. push them onto the list in reverse order
+	//so they are attached in the appropriate order when iterating the list
+	//later.
+	forkNode := b.bestChain.FindFork(node)
+	invalidChain := false
+	for n := node; n != nil && n != forkNode; n = n.parent {
+		if b.index.NodeStatus(n).KnownInvalid() {
+			invalidChain = true
+			break
+		}
 
+		attachNodes.PushFront(n)
+	}
 
+	// if any of the node is ancestors are invalid .unwind attachNodes ,marking
+	// each on as invalid for further reference
+	if invalidChain {
+		var next *list.Element
+		for e := attachNodes.Front(); e != nil; e = next {
+			next = e.Next()
+			n := attachNodes.Remove(e).(*blockNode)
+			b.index.SetStatusFlags(n, statusInvalidAncestor)
+
+		}
+		return detachNodes, attachNodes
+	}
+
+	//start from the end of main chain and work backwards until the common
+	//ancestor adding each block to the list of the nodes to detach from
+	//the main chain.
+
+	for n := b.bestChain.tip(); n != nil && n != forkNode; n = n.parent {
+		detachNodes.PushBack(n)
+	}
+
+	return detachNodes, attachNodes
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
