@@ -523,3 +523,112 @@ func (b *BlockChain) getReorganizeNodes(node *blockNode) (*list.List, *list.List
 	return detachNodes, attachNodes
 
 }
+
+//connectblock handles conneting the passed node/block to the end of the mian
+//best chain.
+//this passed utxo view must have all referenced txos the block spends marked
+//as spent and all of the new txos the block creates added to it .in addition .
+//the passed stxos slice must be populated with all of the information for the
+//spents txos. this approach is used because the connection validation that
+//must happen prior to calling this function requires the same details .so
+//it would be inefficient to repeat it.
+func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
+	view *UtxoViewpoint, stxos []SpentTxOut) error {
+
+	//make sure it is extending the end of the best chain.
+	prevHash := &block.MsgBlock().Header.PrevBlock
+	if !prevHash.IsEqual(&b.bestChain.Tip().hash) {
+		return AssertError("connectBlock must be called with a block " +
+			"that extends the main chain.")
+	}
+
+	//sanity check the correct number of stxos are provided.
+	if len(stxos) != countSpentOutputs(block) {
+		return AssertError("connectBlock called with inconsistent" +
+			"spent transaction out information")
+	}
+
+	//no warning about unkonwn rules or versions until the chain is current
+	if b.isCurrent() {
+		//warn if any unknown new rules are either about to activate or
+		//have already been activated.
+		if err := b.warnUnkonwnRuleActivations(node); err != nil {
+			return err
+		}
+
+		//warn if a high enough percentage of the last blocks have unexpected verions.
+		if err := b.warnUnkonwnRuleActivations(node); err != nil {
+			return err
+		}
+
+	}
+
+	//write any block status changes to DB before updating best state.
+	err := b.index.flushToDB()
+	if err != nil {
+		return err
+	}
+
+	//generate a new best state snapshot will be used to update the database
+	//and later memory if all database updates are successful.
+	b.stateLock.RLock()
+	curTotalTxns := b.stateSnapshot.TotalTxns
+	b.stateLock.RUnlock()
+	numTxns := uint64(len(block.MsgBlock().Transactions))
+	blockSize := uint64(block.MsgBlock().SerializeSize())
+	blockWeight := uint64(GetBlockWeight(block))
+	state := newBestState(node, blockSize, blockWeight, numTxns, curTotalTxns+numTxns,
+		node.CalcPastMedianTime())
+	//atomically insert into the database
+	err = b.db.Update(func(dbTx database.Tx) error {
+		//update best block state.
+		err := dbPutBestState(dbTx, state, node.workSum)
+		if err != nil {
+			return err
+		}
+
+		//add the block hash and height to block index which tracks
+		//the main chain,
+		err = dbPutBlockIndex(dbTx, block.Hash(), node.height)
+		if err != nil {
+			return err
+		}
+
+		//update the utxo set using the state of the utxo view .this
+		//entails removing all of the utxos spent and adding the new
+		//ones created by the block.
+		err = dbPutUtxoView(dbTx, view)
+		if err != nil {
+			return err
+		}
+
+		//update the transaction spend journal by adding a record for
+		//the block that contains all txos spent by it.
+		err = dbPutSpendJournalEntry(dbTx, block.Hash(), stxos)
+		if err != nil {
+			return err
+		}
+
+		//allow the index manager to call each of the curretly active
+		//optional index with the block being connected so they can
+		//update themselves accordingly.
+		if b.indexManager != nil {
+			err := b.indexManager.ConnectBlock(dbTx, block, stxos)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+
+	})
+
+	if err != nil{
+		return err
+	}
+
+
+
+}
+
+
