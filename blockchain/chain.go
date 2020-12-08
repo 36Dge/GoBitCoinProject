@@ -623,12 +623,65 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 
 	})
 
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
+	//prune fully spent entries and mark all entries in the view unmodifyed
+	//now that the modification have been committed to the database
+	view.commit()
 
+	//this node is now the end of the best chain.
+	b.bestChain.setTip(node)
+
+	//update the state for the best block.notice how this replaces the
+	//entries struct instead of updating the existing one.this effectively
+	// allows the old version to act as a snapshot which callers can use
+	// freely without needing to hold a lock for the duration.  See the
+	// comments on the state variable for more details.
+	b.stateLock.Lock()
+	b.stateSnapshot = state
+	b.stateLock.Unlock()
+
+	//notify the caller that the block was connected to the main chain.
+	//the caller would typcically want to react with actions such as
+	//updating wallets.
+	b.chainLock.Unlock()
+	b.sendNotification(NTBlockConnected, block)
+	b.chainLock.Lock()
+
+	return nil
 
 }
+
+//disconnectblock handles disconnecting the passed  node /block from the
+//the end of the mian (best)chain.
+//this function must be called with the chain state lock held (for wriets).
+func (b *BlockChain) disconnectBlock(node *blockNode, block *btcutil.Block, view *UtxoViewpoint)error {
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
