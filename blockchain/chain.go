@@ -657,23 +657,133 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 //disconnectblock handles disconnecting the passed  node /block from the
 //the end of the mian (best)chain.
 //this function must be called with the chain state lock held (for wriets).
-func (b *BlockChain) disconnectBlock(node *blockNode, block *btcutil.Block, view *UtxoViewpoint)error {
+func (b *BlockChain) disconnectBlock(node *blockNode, block *btcutil.Block, view *UtxoViewpoint) error {
+
+	//make sure the node being disconnected is the ent of the best chain.
+	if !node.hash.IsEqual(&b.bestChain.Tip().hash) {
+		return AssertError("disconectBlock must be called with the " +
+			"block at the end of the main chain")
+	}
+
+	//load the previous block since some details for it are needed below.
+	prevNode := node.parent
+	var prevBlock *btcutil.Block
+	err := b.db.View(func(dbTx database.Tx) error {
+		var err error
+		prevBlock, err = dbFetchBlockByNode(dbTx, prevNode)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+
+	//write any block status changes to DB before updating best state.
+	err = b.index.flushToDB()
+	if err != nil {
+		return err
+	}
+
+	//generate a new best state snapshot that will be used to update the
+	//database and later memory if all database updates are successful.
+
+	b.stateLock.RLock()
+	curTotalTxns := b.stateSnapshot.TotalTxns
+	b.stateLock.RUnlock()
+	numTxns := uint64(len(prevBlock.MsgBlock().Transactions))
+	blockSize := uint64(prevBlock.MsgBlock().SerializeSize())
+	blockWeight := uint64(GetBlockWeight(prevBlock))
+	newTotalTxns := curTotalTxns - uint64(len(block.MsgBlock().Transactions))
+	state := newBestState(prevNode, blockSize, blockWeight, numTxns, newTotalTxns, prevNode.CalcPastMedianTime())
+
+	err = b.db.Update(func(dbTx database.Tx) error {
+		//update best block state.
+		err := dbPutBestState(dbTx, state, node.workSum)
+		if err != nil {
+			return err
+		}
+
+		//remove the block hash and height form the block index which track
+		//the main chain.
+		err = dbRemoveBlockIndex(dbTx, block.Hash(), node.height)
+		if err != nil {
+			return err
+		}
+
+		//update the utxos set using the state of the utxo view.this
+		//entails restoring all of the utxos spent and removing the new
+		//onse created by the block.
+		err = dbPutUtxoView(dbTx, view)
+		if err != nil {
+			return err
+		}
+
+		//before we delete the spend journal entry for this block ,
+		//we will fetch it as is so the indexers can utilize if needed
+		stxos, err := dbFetchSpendJournalEntry(dbTx, block)
+		if err != nil {
+			return err
+		}
+
+		//update the transaction spend journal by removing the record that
+		//contains all txos spent by the block.
+		err = dbRemoveSpendJournalEntry(dbTx, block.Hash())
+		if err != nil {
+			return err
+		}
+
+		//allow the index manager to call each of the currently active
+		//optional indexs with the block being disconnected so they can
+		//update themselves accordingly.
+		if b.indexManager != nil {
+			err := b.indexManager.DisconnectBlcok(dbTx, block, stxos)
+			if err != nil {
+				return err
+			}
+
+		}
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	//prune fully spent entries and mark all entries in the view unmodified
+	//now that the modifications have been committed to the database .
+	view.commit()
+
+	//this node`s parent is now the end of the best chain.
+	b.bestChain.setTip(node.parent)
+
+	// Update the state for the best block.  Notice how this replaces the
+	// entire struct instead of updating the existing one.  This effectively
+	// allows the old version to act as a snapshot which callers can use
+	// freely without needing to hold a lock for the duration.  See the
+	// comments on the state variable for more details.
+	b.stateLock.Lock()
+	b.stateSnapshot = state
+	b.stateLock.Unlock()
+
+	// Notify the caller that the block was disconnected from the main
+	// chain.  The caller would typically want to react with actions such as
+	// updating wallets.
+	b.chainLock.Unlock()
+	b.sendNotification(NTBlockDisconnected, block)
+	b.chainLock.Lock()
+
+	return nil
 
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+//countSpentoutputs returns the number of utxos the passed block spends.
+func countSpentOutputs(block *btcutil.Block) int {
+	//exclude the coinbase transaction since it can not spend anything
+	var numSpent int
+	for _,tx := range block.Transactions()[1:]{
+		numSpent += len(tx.MsgTx().TxIn)
+	}
+	return  numSpent
+}
 
 
 
