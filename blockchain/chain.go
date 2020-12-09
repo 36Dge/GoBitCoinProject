@@ -785,6 +785,44 @@ func countSpentOutputs(block *btcutil.Block) int {
 	return  numSpent
 }
 
+//reorganizechain reorganizes the block chain by disconnecting the nodes
+//in the detachNodes list and connecting the nodes in the attach list it expects
+//that the lists are already in the correct order and are in sync with the
+//end of the current best chain.specially .nodes that are being disconnectied
+//must be in reverse order(thing of poping them off the end of chain)and
+//nodes the are being attached must be in forwards order think pushing them
+//onto the end of the chain.)
+
+//this function may modify node statused in the block index without fulusing
+//this function must be called with the chain state lock held (for writes).
+
+func (b *BlockChain) reorganizeChain(detachNodes,attachNodes *list.List) error {
+
+	//nothing to do if no reorganize nodes were provided.
+	if detachNodes.Len() == 0 && attachNodes.Len() == 0 {
+		return nil
+	}
+
+	//ensure the provided nodes match the current best chain.
+	tip := b.bestChain.Tip()
+	if detachNodes.Len() != 0{
+		firstDetachNode := detachNodes.Front().Value.(*blockNode)
+		if firstDetachNode.hash != tip.hash {
+			return AssertError(fmt.Sprintf("recorganize nodes to detach are " +
+				"not for the current best chain -- first detach node %v ,"+
+				"current chain %V",&firstDetachNode.hash,&tip.hash))
+		}
+	}
+}
+
+
+
+
+
+
+
+
+
 
 
 
