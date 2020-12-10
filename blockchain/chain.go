@@ -779,10 +779,10 @@ func (b *BlockChain) disconnectBlock(node *blockNode, block *btcutil.Block, view
 func countSpentOutputs(block *btcutil.Block) int {
 	//exclude the coinbase transaction since it can not spend anything
 	var numSpent int
-	for _,tx := range block.Transactions()[1:]{
+	for _, tx := range block.Transactions()[1:] {
 		numSpent += len(tx.MsgTx().TxIn)
 	}
-	return  numSpent
+	return numSpent
 }
 
 //reorganizechain reorganizes the block chain by disconnecting the nodes
@@ -796,7 +796,7 @@ func countSpentOutputs(block *btcutil.Block) int {
 //this function may modify node statused in the block index without fulusing
 //this function must be called with the chain state lock held (for writes).
 
-func (b *BlockChain) reorganizeChain(detachNodes,attachNodes *list.List) error {
+func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error {
 
 	//nothing to do if no reorganize nodes were provided.
 	if detachNodes.Len() == 0 && attachNodes.Len() == 0 {
@@ -805,31 +805,104 @@ func (b *BlockChain) reorganizeChain(detachNodes,attachNodes *list.List) error {
 
 	//ensure the provided nodes match the current best chain.
 	tip := b.bestChain.Tip()
-	if detachNodes.Len() != 0{
+	if detachNodes.Len() != 0 {
 		firstDetachNode := detachNodes.Front().Value.(*blockNode)
 		if firstDetachNode.hash != tip.hash {
-			return AssertError(fmt.Sprintf("recorganize nodes to detach are " +
+			return AssertError(fmt.Sprintf("recorganize nodes to detach are "+
 				"not for the current best chain -- first detach node %v ,"+
-				"current chain %V",&firstDetachNode.hash,&tip.hash))
+				"current chain %V", &firstDetachNode.hash, &tip.hash))
 		}
 	}
+
+	//ensure the provided nodes are for the same fork point.
+	if attachNodes.Len() != 0 && detachNodes.Len() != 0 {
+		firstAttachNode := attachNodes.Front().Value.(*blockNode)
+		lastDetachNode := detachNodes.Back().Value.(*blockNode)
+		if firstAttachNode.parent.hash != lastDetachNode.parent.hash {
+			return AssertError(fmt.Sprintf("reorganize nodes do not have the "+
+				"same fork point -- first attach parent %v,last detach"+
+				"parent %v", &firstAttachNode.parent.hash, &lastDetachNode.parent.hash))
+		}
+	}
+
+	//trach the old and new best chains heads.
+
+	oldBest := tip
+	newBest := tip
+
+	//all of the blocks to detach and related spend journal entries needed
+	//to unspend transaction outputs in the blocks being disconnected must
+	//be loaded from the database during the reorg check phase below and
+	//then the are needed again when doing the actual database updates .
+	//rather than dong two loads .cache the loaded data into these slices.
+	detachBlocks := make([]*btcutil.Block, 0, detachNodes.Len())
+	detachSpentTxOuts := make([][]SpentTxOut, 0, detachNodes.Len())
+	attachBlocks := make([]*btcutil.Block, 0, attachNodes.Len())
+
+	//disconnect all of the blocks back to the point of the fork. this
+	//entails loading the blocks and their associated spent txos from the
+	//database and using that information to unspend all of the spent txos
+	//and remove the utxos created by the blocks.
+	view := NewUtxoViewpoint()
+	view.SetBestHash(&oldBest.hash)
+
+	for e := detachNodes.Front(); e != nil; e = e.Next() {
+		n := e.Value.(*blockNode)
+		var block *btcutil.Block
+		err := b.db.View(func(dbTx database.Tx) error {
+			var err error
+			block, err = dbFetchBlockByNode(dbTx, n)
+			return err
+		})
+
+		if err != nil {
+			return err
+		}
+
+		if n.hash != *block.Hash() {
+			return AssertError(fmt.Sprintf("detach block node hash %v(hegiht + "+
+				"%v) does not match previous parent block hash %v", &n.hash, n.height, block.Hash()))
+		}
+
+		// Load all of the utxos referenced by the block that aren't
+		// already in the view.
+		err = view.fetchInputUtxos(b.db, block)
+		if err != nil {
+			return err
+		}
+
+		// Load all of the spent txos for the block from the spend
+		// journal.
+		var stxos []SpentTxOut
+		err = b.db.View(func(dbTx database.Tx) error {
+			stxos, err = dbFetchSpendJournalEntry(dbTx, block)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+
+		// Store the loaded block and spend journal entry for later.
+		detachBlocks = append(detachBlocks, block)
+		detachSpentTxOuts = append(detachSpentTxOuts, stxos)
+
+		err = view.disconnectTransactions(b.db, block, stxos)
+		if err != nil {
+			return err
+		}
+
+		newBest = n.parent
+
+	}
+
+
+
+
+
+
+
+
+
+
+
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
