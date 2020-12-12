@@ -1049,4 +1049,57 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 
 }
 
+//connectbestchain handle connecting the passed block to the chain while
+//respecting proper chain selecting according to the chain with the moset
+//proof of work .in the typical case . the new block simply extends the main
+//chain.however it may also be extending (or creating)a side chain(fork)
+//which may or may not end up becoing the main depending on which fork
+//cumulatively has the most proof of work .it returns whether or not the block
+//end up on the main chain(either due to extending the main chain or caruing a
+//a reorganization to become the main ).
+
+//the flags modify the behavior of this fucntion as follows.
+//bfffastadd:avoids several expensive transaction validation operations.
+//this is useful when using checkpoints.
+//this function must be called with the chain state lock held(for wiretes.).
+func (b *BlockChain)connectBestChain(node *blockNode,block *btcutil.Block,flags BehaviorFlags)(bool,error){
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
