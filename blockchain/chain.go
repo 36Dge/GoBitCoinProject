@@ -3,6 +3,7 @@ package blockchain
 import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
+	"BtcoinProject/database"
 	"BtcoinProject/wire"
 	"container/list"
 	"fmt"
@@ -895,14 +896,157 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 
 	}
 
+	//set the fork point only if there are nodes to attach since otherwire
+	//blocks are only being disconnectted and thus there is no fork point.
+	var forkNode *blockNode
+	if attachNodes.Len() > 0 {
+		forkNode = newBest
+	}
 
+	//perform several checks to verity each block that needs to be attached
+	//to the main chain can be connceted without violating any rules and without
+	//actually connecting the block
+	//note:these checks could be done directly when connecting a block ,
+	//however the downside to that approach is that if any of these checks
+	//fail after dicconnecting some blocks or attaching others all of the opreatins
+	//have to be rolled back to get the chain back into the state it was befor
+	//the rule violation(or other failure).there are as least a couple of ways
+	//accomplish that rollback ,but both involve tweaking the chain and /or database .
+	//this approach catches these issues before ever modifying the chain.
 
+	for e := attachNodes.Front(); e != nil; e = e.Next() {
+		n := e.Value.(*blockNode)
 
+		var block *btcutil.Block
+		err := b.db.View(func(dbTx database.Tx) error {
+			var err error
+			block, err = dbFetchBlockByNode(dbTx, n)
+			return err
+		})
+		if err != nil {
+			return err
+		}
 
+		//store the loaded block for later.
+		attachBlocks = append(attachBlocks, block)
 
+		//skip checks if node has alredy been fully validated.although
+		//checkconncetblock gets skipped ,we still need to update the utxo
+		//view
+		if b.index.NodeStatus(n).KnownInvalid() {
+			err = view.fetchInputUtxos(b.db, block)
+			if err != nil {
+				return err
+			}
 
+			err = view.connectTransaction(block, nil)
+			if err != nil {
+				return err
+			}
 
+			newBest = n
+			continue
+		}
 
+		//notice the spent txout details are not requested here and thus
+		//will not be generated .this is done because the state is not
+		//being immediately wirtten to the database .so it is not needed
 
+		//in the case the block is determinded to be invalid due to a
+		//rule violation ,mark it as invalid and mark all of its descendants
+		//as having an invalid ancestor.
+		err = b.checkConnectBlock(n, block, view, nil)
+		if err != nil {
+			if _, ok := err.(RuleError); ok {
+				b.index.SetStatusFlags(n, statusValidateFailed)
+				for de := e.Next(); de != nil; de = de.Next() {
+					dn := de.Value.(*blockNode)
+					b.index.SetStatusFlags(dn, statusInvalidAncestor)
+
+				}
+			}
+			return err
+		}
+
+		b.index.SetStatusFlags(n, statusValid)
+		newBest = n
+	}
+
+	//reset the view for the actual connect code below ,this is required becaruse
+	//because the view was previously modified when checking if
+	// the reorg would be successful and the connection code requires the
+	// view to be valid from the viewpoint of each block being connected or
+	// disconnected.
+	view = NewUtxoViewpoint()
+	view.SetBestHash(&b.bestChain.Tip().hash)
+
+	//disconnect blocks from the main chain.
+	for i, e := 0, detachNodes.Front(); e != nil; i, e = i+1, e.Next() {
+		n := e.Value.(*blockNode)
+		block := detachNodes[i]
+
+		//load all of the utxos referenced by the block that are not
+		//aleay in the view.
+
+		err := view.fetchInputUtxos(b.db, block)
+		if err != nil {
+			return err
+		}
+
+		//update the view to unspend all of the spent txos and remove
+		//utxos created by the block
+		err = view.disconnectTransactions(b.db, block, detachSpentTxOuts[i])
+		if err != nil {
+			return err
+		}
+
+		//update the datebase and chain state
+		err = b.disconnectBlock(n, block, view)
+		if err != nil {
+			return err
+		}
+
+	}
+
+	//connect the new best chain blocks
+	for i, e := 0, attachNodes.Front(); e != nil; i, e = i+1, e.Next() {
+		n := e.Value.(*blockNode)
+		block := attachBlocks[i]
+
+		//load all of the utxos referenced by the block that are not already
+		//in the veiw
+		err := view.fetchInputUtxos(b.db, block)
+		if err != nil {
+			return nil
+		}
+
+		//update the view to mark all utxos referenced by the block as spent
+		//and add all tranasactions being created by this block to it .also
+		//provided an stxos slice so the spent txout details are generated.
+		stxos := make([]SpentTxOut, 0, countSpentOutputs(block))
+		err = view.connectTransactions(block, &stxos)
+		if err != nil {
+			return err
+		}
+
+		//update the datebase and chain state
+		err = b.connectBlock(n, block, view, stxos)
+		if err != nil {
+			return err
+		}
+
+	}
+	//log the point where the chain forked and old new best chain heads
+	if forkNode != nil {
+		log.Infof("reorganize:chain forkd at %v(height %v)", forkNode.hash, forkNode.height)
+
+	}
+
+	log.Infof("recongize:old best chain head was %v(height%v)", &oldBest.hash, oldBest.height)
+	log.Infof("REORGANIZE: New best chain head is %v (height %v)",
+		newBest.hash, newBest.height)
+	return nil
 
 }
+
+
