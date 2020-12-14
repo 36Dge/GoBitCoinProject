@@ -4,6 +4,8 @@ import "BtcoinProject/wire"
 
 
 
+
+
 const (
 
 	//blockhdrsize is the size of a block header.this is simply the
@@ -20,4 +22,19 @@ const (
 	//in reorgs.
 	latestSpendJournalBucketVersion = 1
 )
+
+
+type SpentTxOut struct {
+	// Amount is the amount of the output.
+	Amount int64
+
+	// PkScipt is the the public key script for the output.
+	PkScript []byte
+
+	// Height is the height of the the block containing the creating tx.
+	Height int32
+
+	// Denotes if the creating tx is a coinbase.
+	IsCoinBase bool
+}
 

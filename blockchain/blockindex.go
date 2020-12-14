@@ -3,6 +3,7 @@ package blockchain
 import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/chaincfg/chainhash"
+	"BtcoinProject/database"
 	"BtcoinProject/wire"
 	"math/big"
 	"sort"
@@ -19,6 +20,10 @@ const (
 
 	//statusvalid indicates that the block have been fully validted.
 	statusValid
+
+	// statusValidateFailed indicates that the block has failed validation.
+	statusValidateFailed
+
 
 	//sattusinvalidancestor indicates that one of the block ancestors has
 	//has failed validation. thus the block is also invalid.

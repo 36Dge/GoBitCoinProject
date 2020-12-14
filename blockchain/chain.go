@@ -1062,44 +1062,126 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 //bfffastadd:avoids several expensive transaction validation operations.
 //this is useful when using checkpoints.
 //this function must be called with the chain state lock held(for wiretes.).
-func (b *BlockChain)connectBestChain(node *blockNode,block *btcutil.Block,flags BehaviorFlags)(bool,error){
+func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, flags BehaviorFlags) (bool, error) {
+
+	fastAdd := flags&BFFastAdd == BFFastAdd
+
+	flushIndexState := func() {
+		//intentionally ignore errors wirting updated node status to DB ,if
+		//it fails to writes,it is not end of the world .if the block is valid
+		//we flush in connectBlock and if the block is invalid ,the worst that
+		//can happen is we revalidate the block after a restart .
+		if writeErr := b.index.flushToDB(); writeErr != nil {
+			log.Warnf("error flushing block index changes to dis:%v,", writeErr)
+
+		}
+	}
+
+	//we are extending the main best chain with a new block .this is the most common
+	//case
+	parentHash := &block.MsgBlock().Header.PrevBlock
+	if parentHash.IsEqual(&b.bestChain.Tip().hash) {
+		//skip checks if node has already been fully validated.
+		fastAdd = fastAdd || b.index.NodeStatus(node).KnownInvalid()
+
+		//perform several checks to verify the block can be connected
+		//to the main without violating any rules and without actually
+		//connecting the block.
+		view := NewUtxoViewpoint()
+
+		view.SetBestHash(parentHash)
+		stxos := make([]SpentTxOut, 0, countSpentOutputs(block))
+		if !fastAdd {
+			err := b.checkConnectBlock(node, block, view, &stxos)
+			if err == nil {
+				b.index.SetStatusFlags(node, statusValid)
+
+			} else if _, ok := err.(RuleError); ok {
+				b.index.SetStatusFlags(node, statusValidateFailed)
+			} else {
+				return false, err
+			}
+
+			flushIndexState()
+
+			if err != nil {
+				return false, err
+			}
+		}
+
+		//in the fast add case the code to check block connection
+		//was skipped. so the utxo view needs to load the referenced
+		//utxos .spend them .and add the new utxos being created by
+		//this block.
+		if fastAdd {
+			err := view.fetchInputUtxos(b.db, block)
+			if err != nil {
+				return false, err
+			}
+
+			err = view.connectTransaction(block, &stxos)
+			if err != nil {
+				return false, err
+			}
+		}
+
+		//connect the block to the main chain.
+
+		err := b.connectBlock(node, block, view, stxos)
+		if err != nil {
+			//if we got hit with a rule error .then we will mark that status of the
+			//block as invalid and flush the index state to disk before returning with
+			//the error
+			if _, ok := err.(RuleError); ok {
+				b.index.SetStatusFlags(
+					node, statusValidateFailed)
+			}
+
+			flushIndexState()
+
+			return false, err
+
+		}
+
+
+		//if this is fast add. or this block node is not yet marked as valid
+		//then we will update its status and flush the state to disk again.
+		if fastAdd || !b.index.NodeStatus(node).KnownInvalid() {
+			b.index.SetStatusFlags(node, statusValid)
+			flushIndexState()
+		}
+		return true, nil
+
+	}
+
+	if fastAdd {
+		log.Warnf("fastadd set in the side chain case? %v\n",block.Hash())
+	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
