@@ -1219,3 +1219,166 @@ func (b *BlockChain) isCurrent() bool {
 	minus24Hours := b.timeSource.AdjustedTime().Add(-24 * time.Hour).Unix()
 	return b.bestChain.Tip().timestamp >= minus24Hours
 }
+
+// IsCurrent returns whether or not the chain believes it is current.  Several
+// factors are used to guess, but the key factors that allow the chain to
+// believe it is current are:
+//  - Latest block height is after the latest checkpoint (if enabled)
+//  - Latest block has a timestamp newer than 24 hours ago
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) IsCurrent() bool {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	return b.isCurrent()
+}
+
+// BestSnapshot returns information about the current best chain block and
+// related state as of the current point in time.  The returned instance must be
+// treated as immutable since it is shared by all callers.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) BestSnapshot() *BestState {
+	b.stateLock.RLock()
+	snapshot := b.stateSnapshot
+	b.stateLock.RUnlock()
+	return snapshot
+}
+
+//headerbyhash returns the block header indentified by the given hash or an
+//error if it doesn,t exist .note that this will return headers form both the
+//main and side chains.
+func (b *BlockChain) HeaderByHash(hash *chainhash.Hash) (wire.BlockHeader, error) {
+	node := b.index.LookupNode(hash)
+	if node == nil {
+		err := fmt.Errorf("block %s is not konwn ", hash)
+		return wire.BlockHeader{}, err
+	}
+	return node.Header(), nil
+}
+
+//mainchainhasblock returns whether or not the block with the given
+//hash is in the main chain.
+//this function is safe for concurrent access.
+func (b *BlockChain) MainChainHashBlock(hash *chainhash.Hash) bool {
+	node := b.index.LookupNode(hash)
+	return node != nil && b.bestChain.Contains(node)
+}
+
+//config is a descriptor which specified the blockchain instance configration.
+type Config struct {
+	//db difine the database which houses the blocks and all will be used to
+	//store all matadata creted by this package such as the utxo set.
+
+	//this field is required.
+	DB database.DB
+
+	//intertrupt specifis a channel the caller can closer to singnal that
+	//long running operations,such as catching up indexs or performing
+	//database migrations. should be interrupted.
+	//this field can be nil if the caller does not decribe the behavior.
+
+	Interrupt <-chan struct{}
+
+	//chainParams indentifies which chain paramaters the chain is associated with
+	//this field is required .
+	ChainParams *chaincfg.Params
+
+	//checkpoints hold caller-defined checkpoints that should be added to
+	//the default checkpoint in chainparams .checkpoints must be stored
+	//by the height .
+	//this field can be nil if the caller does not wish to specify any
+	//checkpoints .
+	Checkpoints []chaincfg.Checkpoint
+
+	//timesources defines the median time source to use for things such
+	//as block procesing and determining whether or not the chain is current .
+
+	//the caller is expected to keep a reference to the time sourece as
+	//well and add time samples from other peers on the network so the locak
+	//time is adjust to be in agreement with other peers.
+
+	TimeSource MedianTimeSource
+
+	//sigcache defines a sigature cache to use when validating
+	//signature s this is typically most useful when individual
+	//transactions are alredy being validated prior to their inclusion
+	//in the block such as what is usually done via a trnasaction memory pool.
+
+	//this field can be nil if the caller is not interested in using ta
+	//singnature cache.
+
+	SigCache *txscript.SigCache
+
+	//indexmanager defines an index manager to use when initialziing the
+	//chain and connecting and disconnecting blocks
+	//this field can be nil if teh caller does not wish to make use of  an
+	//index manager.
+
+	IndexManager IndexManager
+
+	//hashcache defines a trnasaction hash mid-state cache to use
+	//when validating transacions .this cache has the potential to
+	//greately speed up trnasaction validation as re-using the pre_calcaulated .
+	//mid-state elimates the (N~2 )validation complexity dut to the
+	//singhash flag.
+
+	HashCache *txscript.HashCache
+}
+
+
+//new returens a blcokchain instance using the provided configuation details.
+
+func New(config *Config)(*BlockChain ,error){
+	//enfore required config fields.
+	if config.DB == nil{
+		return nil,AssertError("blockchain.new database is nil" )
+	}
+
+	if config.ChainParams == nil{
+		return nil, AssertError("blockchain.New chain parameters nil")
+	}
+	if config.TimeSource == nil{
+		return nil, AssertError("blockchain.New timesource is nil")
+	}
+
+
+
+
+
+
+
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
