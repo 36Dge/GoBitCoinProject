@@ -1198,21 +1198,24 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 
 }
 
+//iscurrent returns wherther or not the chain believes it is current .several
+//factors are used to guess.but the key factors that allow the chain to
+//believe it is current are :
+//-latest block height is after the latest checkpoint(if enabled)
+//-latest block has a timestamp newer than 24 hores ago.
 
+//this function must be called with the chain state lock held(for reads)
+func (b *BlockChain) isCurrent() bool {
+	//not current if the latest main(best) chain height is before the
+	//latest known good checkpoint (when checkpoint are enabled).
+	checkpoint := b.LatestCheckkpoint()
+	if checkpoint != nil && b.bestChain.Tip().height < checkpoint.Height {
+		return false
+	}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	//not current is the laste best block has a timestamp before 24 hours
+	//ago
+	//the chain appears to be current if node of the checks reported otherwise
+	minus24Hours := b.timeSource.AdjustedTime().Add(-24 * time.Hour).Unix()
+	return b.bestChain.Tip().timestamp >= minus24Hours
+}
