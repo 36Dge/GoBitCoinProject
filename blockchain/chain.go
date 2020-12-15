@@ -1143,7 +1143,6 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 
 		}
 
-
 		//if this is fast add. or this block node is not yet marked as valid
 		//then we will update its status and flush the state to disk again.
 		if fastAdd || !b.index.NodeStatus(node).KnownInvalid() {
@@ -1155,33 +1154,65 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 	}
 
 	if fastAdd {
-		log.Warnf("fastadd set in the side chain case? %v\n",block.Hash())
+		log.Warnf("fastadd set in the side chain case? %v\n", block.Hash())
 	}
 
+	//we are extending (or creating ) a side chain .but the cumulative work
+	//for this new side is not enough to make it the new chain.
+	if node.workSum.Cmp(b.bestChain.Tip().workSum) <= 0 {
+		//log information about how the block is forking the chain
+		fork := b.bestChain.findFork(node)
+		if fork.hash.IsEqual(parentHash) {
+			log.Info("fork ,block %v forks the chain at height %d"+
+				"/block %v,but does not cause a reorgainize ",
+				node.hash, fork.height, fork.hash)
+		} else {
+			log.Info("EXTEND FORK:block %v extends a side chain "+
+				"which forks the chain at height %d/block %v", node.hash, fork.height,
+				fork.hash)
+		}
+		return false, nil
+	}
 
+	//we are extending or creating a side chain and the cumulative work
+	//for this new side chain is more than the old best chain ,so this
+	//side chain needs to become the main chain,in order to accomplish that
+	//find the common ancestor of both sides of the fork .disconnect the
+	//blocks that form the new chain to the main chain starting at the common
+	//ancenstor(the point where the chain forked )
+	detachNodes, attachNodes := b.getReorganizeNodes(node)
 
+	//reorganize the chain
+	log.Infof("Reorganize :block %v is causing a reorganize .", node.hash)
+	err := b.reorganizeChain(detachNodes, attachNodes)
 
+	//either getreorganizendoes or reorganizechain could have made unsaved
+	//changes to the block index ,so flush regardless of whether there was
+	//an error .the index would only be dirty if the block failed to connect .
+	//so we can innore any errors writing.
+	if writeErr := b.index.flushToDB(); writeErr != nil {
+		log.Warnf("Error flushing block index changes to disk :%v", writeErr)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	}
+	return err == nil, err
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
