@@ -1267,7 +1267,6 @@ func (b *BlockChain) MainChainHasBlock(hash *chainhash.Hash) bool {
 	return node != nil && b.bestChain.Contains(node)
 }
 
-
 // BlockLocatorFromHash returns a block locator for the passed block hash.
 // See BlockLocator for details on the algorithm used to create a block locator.
 //
@@ -1294,8 +1293,6 @@ func (b *BlockChain) LatestBlockLocator() (BlockLocator, error) {
 	b.chainLock.RUnlock()
 	return locator, nil
 }
-
-
 
 // BlockHeightByHash returns the height of the block with the given hash in the
 // main chain.
@@ -1326,21 +1323,101 @@ func (b *BlockChain) BlockHashByHeight(blockHeight int32) (*chainhash.Hash, erro
 	return &node.hash, nil
 }
 
+//heightRange return a range of block hashes for the given start and
+//end heights .it is inclusive of the start height and exclusive of the end
+//height .the end height will be limited to the current main chain
+//height.
+//this function is safe for concurrent access.
+func (b *BlockChain) HeightRange(startHeight, endHeight int32) ([]chainhash.Hash, error) {
+
+	//ensure requested height are sane.
+	if startHeight < 0 {
+		return nil, fmt.Errorf("start height of fetch range must not "+
+			"be less than zero - got %d", startHeight)
+
+	}
+
+	if endHeight < startHeight {
+		return nil, fmt.Errorf("end height of fetch range must not "+
+			"be less than the start height - got start %d, end %d",
+			startHeight, endHeight)
+	}
+
+	//there is nothing to do when the start and end height are the same
+	//so return now to avoid the chain view lock.
+	if startHeight == endHeight {
+		return nil, nil
+	}
+
+	//grab a lock on the chain view to prevent it form changing dut to
+	//a reorg while buliding the hashes
+	b.bestChain.mtx.Lock()
+	defer b.bestChain.mtx.Unlock()
+
+	//when the requested start height is after the most recent
+	//best chain height .there is nothing to do .
+	latestHeight := b.bestChain.tip().height
+	if startHeight > latestHeight {
+		return nil, nil
+	}
+
+	//limit the ending height to the latest height of the chain.
+	if endHeight > latestHeight+1 {
+		endHeight = latestHeight + 1
+	}
+
+	//fetch as many as are available within the specific range.
+	hashes := make([]chainhash.Hash, 0, endHeight-startHeight)
+	for i := startHeight; i < endHeight; i++ {
+		hashes = append(hashes, b.bestChain.nodeByHeight(i).hash)
+	}
+
+	return hashes, nil
+
+}
 
 
+// HeightToHashRange returns a range of block hashes for the given start height
+// and end hash, inclusive on both ends.  The hashes are for all blocks that are
+// ancestors of endHash with height greater than or equal to startHeight.  The
+// end hash must belong to a block that is known to be valid.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) HeightToHashRange(startHeight int32,
+	endHash *chainhash.Hash, maxResults int) ([]chainhash.Hash, error) {
 
+	endNode := b.index.LookupNode(endHash)
+	if endNode == nil {
+		return nil, fmt.Errorf("no known block header with hash %v", endHash)
+	}
+	if !b.index.NodeStatus(endNode).KnownValid() {
+		return nil, fmt.Errorf("block %v is not yet validated", endHash)
+	}
+	endHeight := endNode.height
 
+	if startHeight < 0 {
+		return nil, fmt.Errorf("start height (%d) is below 0", startHeight)
+	}
+	if startHeight > endHeight {
+		return nil, fmt.Errorf("start height (%d) is past end height (%d)",
+			startHeight, endHeight)
+	}
 
+	resultsLength := int(endHeight - startHeight + 1)
+	if resultsLength > maxResults {
+		return nil, fmt.Errorf("number of results (%d) would exceed max (%d)",
+			resultsLength, maxResults)
+	}
 
-
-
-
-
-
-
-
-
-
+	// Walk backwards from endHeight to startHeight, collecting block hashes.
+	node := endNode
+	hashes := make([]chainhash.Hash, resultsLength)
+	for i := resultsLength - 1; i >= 0; i-- {
+		hashes[i] = node.hash
+		node = node.parent
+	}
+	return hashes, nil
+}
 
 
 
