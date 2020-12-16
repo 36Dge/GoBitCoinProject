@@ -8,6 +8,7 @@ import (
 	"container/list"
 	"fmt"
 	"github.com/btcsuite/btcutil"
+	"math"
 	"sync"
 	"time"
 )
@@ -1327,58 +1328,95 @@ type Config struct {
 	HashCache *txscript.HashCache
 }
 
-
 //new returens a blcokchain instance using the provided configuation details.
 
-func New(config *Config)(*BlockChain ,error){
+func New(config *Config) (*BlockChain, error) {
 	//enfore required config fields.
-	if config.DB == nil{
-		return nil,AssertError("blockchain.new database is nil" )
+	if config.DB == nil {
+		return nil, AssertError("blockchain.new database is nil")
 	}
 
-	if config.ChainParams == nil{
+	if config.ChainParams == nil {
 		return nil, AssertError("blockchain.New chain parameters nil")
 	}
-	if config.TimeSource == nil{
+	if config.TimeSource == nil {
 		return nil, AssertError("blockchain.New timesource is nil")
 	}
 
+	//generate a checkpoint by height map from the provided checkpoints
+	//and assert the provided checkpoints are sorted by hegiht as required .
+	var checkpointsByHeight map[int32]*chaincfg.Checkpoint
+	var prevCheckpointHeight int32
+	if len(config.Checkpoints) > 0 {
+		checkpointsByHeight = make(map[int32]*chaincfg.Checkpoint)
+		for i := range config.Checkpoints {
+			checkpoint := &config.Checkpoints[i]
+			if checkpoint.Height <= prevCheckpointHeight {
+				return nil, AssertError("blockchain.New " +
+					"checkpoints are not sorted by height")
+			}
+			checkpointsByHeight[checkpoint.Height] = checkpoint
+			prevCheckpointHeight = checkpoint.Height
 
+		}
+	}
 
+	params := config.ChainParams
+	targetTimespan := int64(params.TargetTimespan / time.Second)
+	targetTimePerBlock := int64(params.TargetTimePerBlock / time.Second)
+	adjustmentFactor := params.RetargetAdjustmentFactor
+	b := BlockChain{
+		checkpoints:         config.Checkpoints,
+		checkpointsByHeight: checkpointsByHeight,
+		db:                  config.DB,
+		chainParams:         params,
+		timeSource:          config.TimeSource,
+		sigCache:            config.SigCache,
+		indexManager:        config.IndexManager,
+		minRetargetTimespan: targetTimespan / adjustmentFactor,
+		maxRetargetTimespan: targetTimespan * adjustmentFactor,
+		blocksPerRetarget:   int32(targetTimespan / targetTimePerBlock),
+		index:               newBlockIndex(config.DB, params),
+		hashCache:           config.HashCache,
+		bestChain:           newChainView(nil),
+		orphans:             make(map[chainhash.Hash]*orphanBlock),
+		prevOrphans:         make(map[chainhash.Hash][]*orphanBlock),
+		warningCaches:       newThresholdCaches(vbNumBits),
+		deploymentCaches:    newThresholdCaches(chaincfg.DefinedDeployments),
+	}
 
+	//initialize the chain state form the passed database .when the db
+	//does not yet contain any chain state .both it and the chain state.
+	//will be initialized to contain only the genesis block
+	if err := b.initChainState(); err != nil {
+		return nil, err
+	}
 
+	//perform any upgrades to the various chain-specific buckets as needed
+	if err := b.maybeUpgradeDbBuckets(config.Interrupt); err != nil {
+		return nil, err
+	}
 
+	//initialize and catch up all of the currently active optional indexs
+	if config.IndexManager != nil {
+		err := config.IndexManager.Init(&b, config.Interrupt)
+		if err != nil {
+			return nil, err
+		}
+	}
 
+	//initialize rule change threshold state caches.
+	if err := b.initThresholdCaches(); err != nil {
+		return nil, err
+	}
 
+	bestNode := b.bestChain.Tip()
+	log.Infof("chain state (height %d,hash %v,totaltx %d,work %v)",
+		bestNode.height, bestNode.hash, b.stateSnapshot.TotalTxns,
+		bestNode.workSum)
+
+	return &b, nil
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
