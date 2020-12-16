@@ -1262,9 +1262,119 @@ func (b *BlockChain) HeaderByHash(hash *chainhash.Hash) (wire.BlockHeader, error
 //mainchainhasblock returns whether or not the block with the given
 //hash is in the main chain.
 //this function is safe for concurrent access.
-func (b *BlockChain) MainChainHashBlock(hash *chainhash.Hash) bool {
+func (b *BlockChain) MainChainHasBlock(hash *chainhash.Hash) bool {
 	node := b.index.LookupNode(hash)
 	return node != nil && b.bestChain.Contains(node)
+}
+
+
+// BlockLocatorFromHash returns a block locator for the passed block hash.
+// See BlockLocator for details on the algorithm used to create a block locator.
+//
+// In addition to the general algorithm referenced above, this function will
+// return the block locator for the latest known tip of the main (best) chain if
+// the passed hash is not currently known.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) BlockLocatorFromHash(hash *chainhash.Hash) BlockLocator {
+	b.chainLock.RLock()
+	node := b.index.LookupNode(hash)
+	locator := b.bestChain.blockLocator(node)
+	b.chainLock.RUnlock()
+	return locator
+}
+
+// LatestBlockLocator returns a block locator for the latest known tip of the
+// main (best) chain.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) LatestBlockLocator() (BlockLocator, error) {
+	b.chainLock.RLock()
+	locator := b.bestChain.BlockLocator(nil)
+	b.chainLock.RUnlock()
+	return locator, nil
+}
+
+
+
+// BlockHeightByHash returns the height of the block with the given hash in the
+// main chain.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) BlockHeightByHash(hash *chainhash.Hash) (int32, error) {
+	node := b.index.LookupNode(hash)
+	if node == nil || !b.bestChain.Contains(node) {
+		str := fmt.Sprintf("block %s is not in the main chain", hash)
+		return 0, errNotInMainChain(str)
+	}
+
+	return node.height, nil
+}
+
+// BlockHashByHeight returns the hash of the block at the given height in the
+// main chain.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) BlockHashByHeight(blockHeight int32) (*chainhash.Hash, error) {
+	node := b.bestChain.NodeByHeight(blockHeight)
+	if node == nil {
+		str := fmt.Sprintf("no block at height %d exists", blockHeight)
+		return nil, errNotInMainChain(str)
+
+	}
+
+	return &node.hash, nil
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//indexmanager provides  a generic interface that the is called when blocks
+//are connected to and from the tip of the main chain for the purpose
+//of suppodrting optional indexs.
+type IndexManager interface {
+
+	// Init is invoked during chain initialize in order to allow the index
+	// manager to initialize itself and any indexes it is managing.  The
+	// channel parameter specifies a channel the caller can close to signal
+	// that the process should be interrupted.  It can be nil if that
+	// behavior is not desired.
+	Init(*BlockChain, <-chan struct{}) error
+
+	// ConnectBlock is invoked when a new block has been connected to the
+	// main chain. The set of output spent within a block is also passed in
+	// so indexers can access the previous output scripts input spent if
+	// required.
+	ConnectBlock(database.Tx, *btcutil.Block, []SpentTxOut) error
+
+	// DisconnectBlock is invoked when a block has been disconnected from
+	// the main chain. The set of outputs scripts that were spent within
+	// this block is also returned so indexers can clean up the prior index
+	// state for this block.
+
+	DisconnectBlock(database.Tx, *btcutil.Block, []SpentTxOut) error
 }
 
 //config is a descriptor which specified the blockchain instance configration.
@@ -1418,5 +1528,3 @@ func New(config *Config) (*BlockChain, error) {
 	return &b, nil
 
 }
-
-
