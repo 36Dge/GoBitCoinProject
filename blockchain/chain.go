@@ -1376,7 +1376,6 @@ func (b *BlockChain) HeightRange(startHeight, endHeight int32) ([]chainhash.Hash
 
 }
 
-
 // HeightToHashRange returns a range of block hashes for the given start height
 // and end hash, inclusive on both ends.  The hashes are for all blocks that are
 // ancestors of endHash with height greater than or equal to startHeight.  The
@@ -1419,14 +1418,47 @@ func (b *BlockChain) HeightToHashRange(startHeight int32,
 	return hashes, nil
 }
 
+//intervalblockhashes returns hashes for all blocks that are
+//ancestors of endhash where the block height is a positive
+//multiple of interval.
+//this function is safe for concurrent access .
+func (b *BlockChain) IntervalBlockHashes(endHash *chainhash.Hash, interval int) ([]chainhash.Hash, error) {
 
+	endNode := b.index.LookupNode(endHash)
+	if endNode == nil {
+		return nil, fmt.Errorf("no known block header with hash %v", endHash)
+	}
 
+	if !b.index.NodeStatus(endNode).KnownInvalid() {
+		return nil, fmt.Errorf("block %v is not yet invalid ", endHash)
 
+	}
 
+	endHeight := endNode.height
 
+	resultLength := int(endHeight) / interval
+	hashes := make([]chainhash.Hash, resultLength)
 
+	b.bestChain.mtx.Lock()
+	defer b.bestChain.mtx.Unlock()
 
+	blockNode := endNode
+	for index := int(endHeight) / interval; index > 0; index-- {
+		//use the bestchain chainview for faster lookuns once lookup intersets
+		//use best chain
+		blockHeight := int32(index * interval)
+		if b.bestChain.contains(blockNode) {
+			blockNode = b.bestChain.nodeByHeight(blockHeight)
+		} else {
+			blockNode = blockNode.Ancestor(blockHeight)
+		}
 
+		hashes[index-1] = blockNode.hash
+
+	}
+
+	return hashes, nil
+}
 
 //indexmanager provides  a generic interface that the is called when blocks
 //are connected to and from the tip of the main chain for the purpose
