@@ -1558,6 +1558,59 @@ func (b *BlockChain) locateBlocks(locator BlockLocator, hashStop *chainhash.Hash
 }
 
 
+// LocateBlocks returns the hashes of the blocks after the first known block in
+// the locator until the provided stop hash is reached, or up to the provided
+// max number of block hashes.
+//
+// In addition, there are two special cases:
+//
+// - When no locators are provided, the stop hash is treated as a request for
+//   that block, so it will either return the stop hash itself if it is known,
+//   or nil if it is unknown
+// - When locators are provided, but none of them are known, hashes starting
+//   after the genesis block will be returned
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) LocateBlocks(locator BlockLocator, hashStop *chainhash.Hash, maxHashes uint32) []chainhash.Hash {
+	b.chainLock.RLock()
+	hashes := b.locateBlocks(locator, hashStop, maxHashes)
+	b.chainLock.RUnlock()
+	return hashes
+}
+
+
+
+
+// LocateHeaders returns the headers of the blocks after the first known block
+// in the locator until the provided stop hash is reached, or up to a max of
+// wire.MaxBlockHeadersPerMsg headers.
+//
+// In addition, there are two special cases:
+//
+// - When no locators are provided, the stop hash is treated as a request for
+//   that header, so it will either return the header for the stop hash itself
+//   if it is known, or nil if it is unknown
+// - When locators are provided, but none of them are known, headers starting
+//   after the genesis block will be returned
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) LocateHeaders(locator BlockLocator, hashStop *chainhash.Hash) []wire.BlockHeader {
+	b.chainLock.RLock()
+	headers := b.locateHeaders(locator, hashStop, wire.MaxBlockHeadersPerMsg)
+	b.chainLock.RUnlock()
+	return headers
+}
+
+
+
+
+
+
+
+
+
+
+
 
 
 
