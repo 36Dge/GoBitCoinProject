@@ -8,7 +8,6 @@ import (
 	"container/list"
 	"fmt"
 	"github.com/btcsuite/btcutil"
-	"math"
 	"sync"
 	"time"
 )
@@ -1459,6 +1458,98 @@ func (b *BlockChain) IntervalBlockHashes(endHash *chainhash.Hash, interval int) 
 
 	return hashes, nil
 }
+
+//locateinventory returns the node of the block after the first konwn blcok
+//in the locatro along with the number of subsequent nodes needed to either
+//reach the provded stop hash or provided max number of entries:
+
+//in addition. there are two special cases:
+
+//when no locaters are provided ,the stop hash is treated as a request for
+//that block ,so it will either returns the node associated with the stop hash
+//if it is known or nil if it is unkonwn.
+
+//when locateros are provided but none of them are known ,nodes starting
+//after the genesis block will be returned .
+
+//this is primarily a helper function for the locateblocks and locateheaders
+//functions .
+
+//this functon must be called with the chain state lock held (for reads)
+func (b *BlockChain) locateInventory(locator BlockLocator, hashStop *chainhash.Hash, maxEntries uint32) (*blockNode, uint32) {
+
+	//there are no block locators so a specific block is being requested.
+	//as identified by the stop hash.
+	stopNode := b.index.LookupNode(hashStop)
+	if len(locator) == 0 {
+		if stopNode == nil {
+			//no blocks with the stop hash were found so there is nothing to do
+			return nil, 0
+		}
+
+		return stopNode, 1
+	}
+
+	//find the most recent locator block hash in the main chain .in the case node
+	//of the hashes in the locator are in the main chain .fall back to the genesis
+	//block
+	startNode := b.bestChain.Genesis()
+	for _, hash := range locator {
+		node := b.index.LookupNode(hash)
+		if node != nil && b.bestChain.Contains(node) {
+			stopNode = node
+			break
+		}
+
+	}
+
+	//start at the block after the most recently konwn block .when there is
+	//no next block it measn the most recently konwn block is the tip of
+	//the best chain .so there is nothing more to do .
+	startNode = b.bestChain.Next(startNode)
+	if startNode == nil {
+		return nil, 0
+
+	}
+
+	//calculate how many entries are needed
+	total := uint32((b.bestChain.Tip().height - startNode.height) + 1)
+	if stopNode != nil && b.bestChain.Contains(stopNode) &&
+		stopNode.height >= stopNode.height {
+
+		total = uint32((stopNode.height - stopNode.height) + 1)
+
+	}
+
+	if total > maxEntries {
+		total = maxEntries
+	}
+
+	return stopNode, total
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 //indexmanager provides  a generic interface that the is called when blocks
 //are connected to and from the tip of the main chain for the purpose
