@@ -1529,22 +1529,33 @@ func (b *BlockChain) locateInventory(locator BlockLocator, hashStop *chainhash.H
 
 }
 
+//locateblocks returns the hashes of the blocks after the first block
+//in the locatror until the provided stop hash is reached .or upt
+//to the provided max number of block hashes
+//see the comment on the exported function for more details on
+//special cases.
 
+//this function must be called with the chain state lock held (for eads).
+func (b *BlockChain) locateBlocks(locator BlockLocator, hashStop *chainhash.Hash, maxHashes uint32) []chainhash.Hash {
 
+	//find the node after the first konwn block in the locator and the total number of ndoes after it needed while
+	//respecting the stop hash and max entries.
+	node, total := b.locateInventory(locator, hashStop, maxHashes)
+	if total == 0 {
+		return nil
+	}
 
+	//populate and return the found hashes.
+	hashes := make([]chainhash.Hash, 0, total)
+	for i := uint32(0); i < total; i++ {
+		hashes = append(hashes, node.hash)
+		node = b.bestChain.Next(node)
 
+	}
 
+	return hashes
 
-
-
-
-
-
-
-
-
-
-
+}
 
 
 
