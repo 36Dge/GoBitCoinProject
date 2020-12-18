@@ -1557,7 +1557,6 @@ func (b *BlockChain) locateBlocks(locator BlockLocator, hashStop *chainhash.Hash
 
 }
 
-
 // LocateBlocks returns the hashes of the blocks after the first known block in
 // the locator until the provided stop hash is reached, or up to the provided
 // max number of block hashes.
@@ -1578,8 +1577,30 @@ func (b *BlockChain) LocateBlocks(locator BlockLocator, hashStop *chainhash.Hash
 	return hashes
 }
 
+// locateHeaders returns the headers of the blocks after the first known block
+// in the locator until the provided stop hash is reached, or up to the provided
+// max number of block headers.
+//
+// See the comment on the exported function for more details on special cases.
+//
+// This function MUST be called with the chain state lock held (for reads).
+func (b *BlockChain) locateHeaders(locator BlockLocator, hashStop *chainhash.Hash, maxHeaders uint32) []wire.BlockHeader {
+	// Find the node after the first known block in the locator and the
+	// total number of nodes after it needed while respecting the stop hash
+	// and max entries.
+	node, total := b.locateInventory(locator, hashStop, maxHeaders)
+	if total == 0 {
+		return nil
+	}
 
-
+	// Populate and return the found headers.
+	headers := make([]wire.BlockHeader, 0, total)
+	for i := uint32(0); i < total; i++ {
+		headers = append(headers, node.Header())
+		node = b.bestChain.Next(node)
+	}
+	return headers
+}
 
 // LocateHeaders returns the headers of the blocks after the first known block
 // in the locator until the provided stop hash is reached, or up to a max of
@@ -1600,20 +1621,6 @@ func (b *BlockChain) LocateHeaders(locator BlockLocator, hashStop *chainhash.Has
 	b.chainLock.RUnlock()
 	return headers
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 //indexmanager provides  a generic interface that the is called when blocks
 //are connected to and from the tip of the main chain for the purpose
