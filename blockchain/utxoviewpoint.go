@@ -25,6 +25,18 @@ const (
 	tfModified
 )
 
+//ismodified returns wherhers or not the output has  been modified since it was
+//loaded .
+func (entry *UtxoEntry) isModified() bool{
+	return  entry.packedFlags&tfModified == tfModified
+
+}
+
+
+
+
+
+
 
 // UtxoEntry houses details about an individual transaction output in a utxo
 // view such as whether or not it was contained in a coinbase tx, the height of
