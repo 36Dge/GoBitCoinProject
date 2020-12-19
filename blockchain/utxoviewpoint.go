@@ -7,6 +7,25 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
+
+
+// txoFlags is a bitmask defining additional information and state for a
+// transaction output in a utxo view.
+type txoFlags uint8
+
+const (
+	// tfCoinBase indicates that a txout was contained in a coinbase tx.
+	tfCoinBase txoFlags = 1 << iota
+
+	// tfSpent indicates that a txout is spent.
+	tfSpent
+
+	// tfModified indicates that a txout has been modified since it was
+	// loaded.
+	tfModified
+)
+
+
 // UtxoEntry houses details about an individual transaction output in a utxo
 // view such as whether or not it was contained in a coinbase tx, the height of
 // the block that contains the tx, whether or not it is spent, its public key
