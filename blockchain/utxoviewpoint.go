@@ -7,8 +7,6 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
-
-
 // txoFlags is a bitmask defining additional information and state for a
 // transaction output in a utxo view.
 type txoFlags uint8
@@ -118,7 +116,6 @@ type UtxoViewpoint struct {
 	bestHash chainhash.Hash
 }
 
-
 // BestHash returns the hash of the best block in the chain the view currently
 // respresents.
 func (view *UtxoViewpoint) BestHash() *chainhash.Hash {
@@ -139,8 +136,82 @@ func (view *UtxoViewpoint) LookupEntry(outpoint wire.OutPoint) *UtxoEntry {
 	return view.entries[outpoint]
 }
 
+//addtxout adds the specified output to the view if it is not provably unspendable .
+//when the view already has an entry for the outputs it will be marked unspnet. all
+//fields will be updated for existing entries since it is possible it has changed during
+//a reorg.
+func (view *UtxoViewpoint) addTxOut(outpoint wire.OutPoint, txOut *wire.TxOut, isCoinBase bool, blockHeight int32) {
 
+	//dont add provably unspendable outputs.
+	if txscritp.IsUnspendable(txOut.PkScript) {
+		return
+	}
 
+	//update existing entries ,all fields are updated it is
+	//possible (although extremely unlikely)that the existing entry
+	//is being replaced by a different transaction with the same hash
+	//this is allowed so long as the previous trnasation is fully spent.
+	entry := view.LookupEntry(outpoint)
+	if entry == nil {
+		entry = new(UtxoEntry)
+		view.entries[outpoint] = entry
+
+	}
+
+	entry.amount = txOut.Value
+	entry.pkScript = txOut.PkScript
+	entry.blockHeight = blockHeight
+	entry.packedFlags = tfModified
+	if isCoinBase {
+		entry.packedFlags |= tfCoinBase
+	}
+
+}
+
+//addtxout adds teh specifed output of the passed transaction to te
+//view if the exists and is not provaly unspendable. when the wive already
+//has an entry for the output .it will be marked unspent .all fields will be
+//updated for existing entries since it is possible it has changed druing a reorg.
+func (view *UtxoViewpoint) AddTxOut(tx *btcutil.Tx, txOutIdx uint32, blockHeight int32) {
+	//can not add an output for an out of bounds index.
+	if txOutIdx >= uint32(len(tx.MsgTx().TxOut)) {
+		return
+	}
+
+	//update existing entries .all fields are updated because it's
+	// possible (although extremely unlikely) that the existing entry is
+	// being replaced by a different transaction with the same hash.  This
+	// is allowed so long as the previous transaction is fully spent.
+	prevOut := wire.OutPoint{Hash: tx.Hash(), Index: txOutIdx}
+	txOut := tx.MsgTx().TxOut[txOutIdx]
+	view.addTxOut(prevOut, txOut, IsCoinBase(tx), blockHeight)
+
+}
+
+// AddTxOuts adds all outputs in the passed transaction which are not provably
+// unspendable to the view.  When the view already has entries for any of the
+// outputs, they are simply marked unspent.  All fields will be updated for
+// existing entries since it's possible it has changed during a reorg.
+func (view *UtxoViewpoint) AddTxOuts(tx *btcutil.Tx, blockHeight int32) {
+
+	//loop all of the transaction outputs and add those which are not
+	//provably unsendable.
+	isCoinBase := IsCoinBase(tx)
+	prevOut := wire.OutPoint{Hash: *tx.Hash()}
+
+	for txOutIdx, txOut := range tx.MsgTx().TxOut {
+		// Update existing entries.  All fields are updated because it's
+		// possible (although extremely unlikely) that the existing
+		// entry is being replaced by a different transaction with the
+		// same hash.  This is allowed so long as the previous
+		// transaction is fully spent.
+
+		prevOut.Index = uint32(txOutIdx)
+		view.addTxOut(prevOut, txOut, isCoinBase, blockHeight)
+
+	}
+
+}
 
 
 
