@@ -4,6 +4,7 @@ import (
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/database"
 	"BtcoinProject/wire"
+	"fmt"
 	"github.com/btcsuite/btcutil"
 )
 
@@ -213,8 +214,57 @@ func (view *UtxoViewpoint) AddTxOuts(tx *btcutil.Tx, blockHeight int32) {
 
 }
 
+//connecttransaction updates the view by adding all new utxos created bbyt
+//the passed transaction and marking all utxos that the ransations spendd as
+//spent .in addition .when the stxos argument is not ni l.it will be updated
+//to append an entries for each spent txout. an error will be
+//returned if the view does not contain the required utxos .
+func (view *UtxoViewpoint) connectTrnasaction(tx *btcutil.Tx, blockHeight int32, stxos *[]SpentTxOut) error {
 
+	//coinbase trnasactions don,t have any inputs to spend.
+	if isCoinBase(tx) {
+		//add the transaction is outputs as available utxos.
+		view.AddTxOuts(tx, blockHeight)
+		return nil
+	}
 
+	//spend the referenced utxos by marking them spent in the view and
+	//if a slice was provided for the spent txout details .append an entry
+	//to it .
+	for _, txIn := range tx.MsgTx().TxIn {
+		//ensure the referenced utxo exists in the view .this should
+		//never happen unless there is a bug is introuced in the code.
+		entry := view.entries[txIn.PreviousOutPoint]
+		if entry == nil {
+			return AssertError(fmt.Sprintf("view missing input %v", txIn.PreviousOutPoint))
+
+		}
+
+		//only crete the stxo details if requested .
+		if stxos != nil {
+			//populate the stxo details using the utxo entry
+			var stxo = SpentTxOut{
+				Amount:     entry.Amount(),
+				PkScript:   entry.PkScript(),
+				Height:     entry.BlockHeight(),
+				IsCoinBase: entry.IsCoinBase(),
+			}
+
+			*stxos = append(*stxos, stxo)
+		}
+
+		//mark the enry as spent .this is not done until after the
+		//relevant details have been accessed since spending it might
+		//clear the field form memory in the future.
+		entry.Spend()
+
+	}
+
+	//add the transcation,s output as available utxos.
+	view.AddTxOuts(tx,blockHeight)
+	return nil
+
+}
 
 // disconnectTransactions updates the view by removing all of the transactions
 // created by the passed block, restoring all utxos the transactions spent by
