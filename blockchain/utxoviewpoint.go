@@ -118,6 +118,33 @@ type UtxoViewpoint struct {
 	bestHash chainhash.Hash
 }
 
+
+// BestHash returns the hash of the best block in the chain the view currently
+// respresents.
+func (view *UtxoViewpoint) BestHash() *chainhash.Hash {
+	return &view.bestHash
+}
+
+// SetBestHash sets the hash of the best block in the chain the view currently
+// respresents.
+func (view *UtxoViewpoint) SetBestHash(hash *chainhash.Hash) {
+	view.bestHash = *hash
+}
+
+// LookupEntry returns information about a given transaction output according to
+// the current state of the view.  It will return nil if the passed output does
+// not exist in the view or is otherwise not available such as when it has been
+// disconnected during a reorg.
+func (view *UtxoViewpoint) LookupEntry(outpoint wire.OutPoint) *UtxoEntry {
+	return view.entries[outpoint]
+}
+
+
+
+
+
+
+
 // disconnectTransactions updates the view by removing all of the transactions
 // created by the passed block, restoring all utxos the transactions spent by
 // using the provided spent txo information, and setting the best hash for the
@@ -127,13 +154,6 @@ func (view *UtxoViewpoint) disconnectTransactions(db database.DB, block *btcutil
 }
 func (view *UtxoViewpoint) fetchInputUtxos(db database.DB, block *btcutil.Block) error {
 	return nil //todo
-}
-// LookupEntry returns information about a given transaction output according to
-// the current state of the view.  It will return nil if the passed output does
-// not exist in the view or is otherwise not available such as when it has been
-// disconnected during a reorg.
-func (view *UtxoViewpoint) LookupEntry(outpoint wire.OutPoint) *UtxoEntry {
-	return view.entries[outpoint]
 }
 
 // RemoveEntry removes the given transaction output from the current state of
