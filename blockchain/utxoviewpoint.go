@@ -25,19 +25,6 @@ const (
 	tfModified
 )
 
-//ismodified returns wherhers or not the output has  been modified since it was
-//loaded .
-func (entry *UtxoEntry) isModified() bool{
-	return  entry.packedFlags&tfModified == tfModified
-
-}
-
-
-
-
-
-
-
 // UtxoEntry houses details about an individual transaction output in a utxo
 // view such as whether or not it was contained in a coinbase tx, the height of
 // the block that contains the tx, whether or not it is spent, its public key
@@ -58,6 +45,65 @@ type UtxoEntry struct {
 	// since it was loaded.  This approach is used in order to reduce memory
 	// usage since there will be a lot of these in memory.
 	packedFlags txoFlags
+}
+
+// isModified returns whether or not the output has been modified since it was
+// loaded.
+func (entry *UtxoEntry) isModified() bool {
+	return entry.packedFlags&tfModified == tfModified
+}
+
+// IsCoinBase returns whether or not the output was contained in a coinbase
+// transaction.
+func (entry *UtxoEntry) IsCoinBase() bool {
+	return entry.packedFlags&tfCoinBase == tfCoinBase
+}
+
+// BlockHeight returns the height of the block containing the output.
+func (entry *UtxoEntry) BlockHeight() int32 {
+	return entry.blockHeight
+}
+
+// IsSpent returns whether or not the output has been spent based upon the
+// current state of the unspent transaction output view it was obtained from.
+func (entry *UtxoEntry) IsSpent() bool {
+	return entry.packedFlags&tfSpent == tfSpent
+}
+
+// Spend marks the output as spent.  Spending an output that is already spent
+// has no effect.
+func (entry *UtxoEntry) Spend() {
+	// Nothing to do if the output is already spent.
+	if entry.IsSpent() {
+		return
+	}
+
+	// Mark the output as spent and modified.
+	entry.packedFlags |= tfSpent | tfModified
+}
+
+// Amount returns the amount of the output.
+func (entry *UtxoEntry) Amount() int64 {
+	return entry.amount
+}
+
+// PkScript returns the public key script for the output.
+func (entry *UtxoEntry) PkScript() []byte {
+	return entry.pkScript
+}
+
+// Clone returns a shallow copy of the utxo entry.
+func (entry *UtxoEntry) Clone() *UtxoEntry {
+	if entry == nil {
+		return nil
+	}
+
+	return &UtxoEntry{
+		amount:      entry.amount,
+		pkScript:    entry.pkScript,
+		blockHeight: entry.blockHeight,
+		packedFlags: entry.packedFlags,
+	}
 }
 
 // UtxoViewpoint represents a view into the set of unspent transaction outputs
