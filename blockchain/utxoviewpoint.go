@@ -4,6 +4,7 @@ import (
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/database"
 	"BtcoinProject/wire"
+	"context"
 	"fmt"
 	"github.com/btcsuite/btcutil"
 )
@@ -261,7 +262,7 @@ func (view *UtxoViewpoint) connectTrnasaction(tx *btcutil.Tx, blockHeight int32,
 	}
 
 	//add the transcation,s output as available utxos.
-	view.AddTxOuts(tx,blockHeight)
+	view.AddTxOuts(tx, blockHeight)
 	return nil
 
 }
@@ -273,9 +274,37 @@ func (view *UtxoViewpoint) connectTrnasaction(tx *btcutil.Tx, blockHeight int32,
 func (view *UtxoViewpoint) disconnectTransactions(db database.DB, block *btcutil.Block, stxos []SpentTxOut) error {
 	return nil // todo
 }
-func (view *UtxoViewpoint) fetchInputUtxos(db database.DB, block *btcutil.Block) error {
-	return nil //todo
+
+//fetchentrybyhash attempts to find any anvilable utxto for the given hash by
+//searching the entire set of possible outputs for the given hash .it checks
+//the view first and then falls bach to the database if needed.
+func (view *UtxoViewpoint) fetchEntryByHash(db database.DB, hash *chainhash.Hash) (*UtxoEntry, error) {
+
+	//first attempt to find a utxo with provided hash in the view.
+	prevOut := wire.OutPoint{Hash: *hash}
+	for idx := uint32(0); idx < MaxOutputsPerBlock; idx++ {
+		prevOut.Index = idx
+		entry := view.LookupEntry(prevOut)
+		if entry != nil {
+			return entry, nil
+		}
+	}
+
+	//check the database since it does not exist in the view .this will
+	//often by the case since only specifically referenced utxos are loaded
+	//into the view.
+	var entry *UtxoEntry
+	err := db.View(func(dbTx database.Tx) error {
+		var err error
+		entry, err = dbFetchUtxoEntryByHash(dbTx, hash)
+		return err
+	})
+	return entry, err
+
 }
+
+
+
 
 // RemoveEntry removes the given transaction output from the current state of
 // the view.  It will have no effect if the passed output does not exist in the
