@@ -267,12 +267,23 @@ func (view *UtxoViewpoint) connectTrnasaction(tx *btcutil.Tx, blockHeight int32,
 
 }
 
-// disconnectTransactions updates the view by removing all of the transactions
-// created by the passed block, restoring all utxos the transactions spent by
-// using the provided spent txo information, and setting the best hash for the
-// view to the block before the passed block.
-func (view *UtxoViewpoint) disconnectTransactions(db database.DB, block *btcutil.Block, stxos []SpentTxOut) error {
-	return nil // todo
+//connecttransaction updates the view by adding all new utxos created by all
+//of the transactions in the passed block .marking all utxos the transactions
+//spend as spent .and settting the best hash for the view to to the passed blcok .
+//in addition ,when the stxos argument is not nil ,it will be updated to
+//append an entry for each spent txout.
+func (view *UtxoViewpoint) connectTransacions(block *btcutil.Block,stxos *[]SpentTxOut)error {
+	for _,tx := range block.Transactions(){
+		err := view.connectTrnasaction(tx,block.Height(),stxos)
+		if err != nil{
+			return err
+		}
+	}
+
+	//update the best hash for view to include this block since all of the its
+	//transaction have been connected.
+	view.SetBestHash(block.Hash())
+	return nil
 }
 
 //fetchentrybyhash attempts to find any anvilable utxto for the given hash by
@@ -303,7 +314,13 @@ func (view *UtxoViewpoint) fetchEntryByHash(db database.DB, hash *chainhash.Hash
 
 }
 
-
+// disconnectTransactions updates the view by removing all of the transactions
+// created by the passed block, restoring all utxos the transactions spent by
+// using the provided spent txo information, and setting the best hash for the
+// view to the block before the passed block.
+func (view *UtxoViewpoint) disconnectTransactions(db database.DB, block *btcutil.Block, stxos []SpentTxOut) error {
+	return nil // todo
+}
 
 
 // RemoveEntry removes the given transaction output from the current state of
@@ -317,3 +334,21 @@ func (view *UtxoViewpoint) RemoveEntry(outpoint wire.OutPoint) {
 func (view *UtxoViewpoint) Entries() map[wire.OutPoint]*UtxoEntry {
 	return view.entries
 }
+
+//commit prunes all entries marked modified that are now fully spent and marks all entries as
+//unmodified.
+func (view *UtxoViewpoint) commit() {
+	for outpoint ,entry := range view.entries {
+		if entry == nil || (entry.isModified() && entry.IsSpent()){
+			delete(view.entries,outpoint)
+			continue
+		}
+	}
+
+	entry.packedFlags ^= tfModified
+}
+
+
+
+
+
