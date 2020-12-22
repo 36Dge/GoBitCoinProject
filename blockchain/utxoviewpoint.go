@@ -349,12 +349,6 @@ func (view *UtxoViewpoint) commit() {
 	entry.packedFlags ^= tfModified
 }
 
-// NewUtxoViewpoint returns a new empty unspent transaction output view.
-func NewUtxoViewpoint() *UtxoViewpoint {
-	return &UtxoViewpoint{
-		entries: make(map[wire.OutPoint]*UtxoEntry),
-	}
-}
 
 //fetchutxosmain fetchs unspent transaction output data about the provided
 //set of outpoints from the point of view of the end of the mian chain
@@ -420,6 +414,53 @@ func (view *UtxoViewpoint) fetchUtxos(db database.DB, outpoints map[wire.OutPoin
 	return view.fetchUtxosMain(db, neededSet)
 
 }
+
+//fetchinpututxos loads the uspent tansaction outputs for the inputs
+//referenced by the trnasactions in the given block into the view from
+//the database as needed in particular reference entries that are
+//earlier in the block are added to the view and entries that
+//are already in the view are not modified.
+func (view *UtxoViewpoint)fetchInputUtxos(db database.DB,block *btcutil.Block)error {
+	//bulid a map of in_flight transaction because some of the inputs in
+	//this block could be refering other transaction earlider in this
+	//block which are not yet in the chain.
+	txInFlight := map[chainhash.Hash]int{}
+	transactions := block.Transactions()
+	for i ,tx := range transactions {
+		txInFlight [*tx.Hash()] = i
+	}
+
+
+
+
+
+
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// NewUtxoViewpoint returns a new empty unspent transaction output view.
+func NewUtxoViewpoint() *UtxoViewpoint {
+	return &UtxoViewpoint{
+		entries: make(map[wire.OutPoint]*UtxoEntry),
+	}
+}
+
 
 //fetchutxoview loads uspent trnasaction outputs for the inputs refierenced
 //by the passed transaction from the point of view of the end of the main chain .
