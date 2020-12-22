@@ -4,9 +4,11 @@ import (
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/database"
 	"BtcoinProject/wire"
+	"container/list"
 	"context"
 	"fmt"
 	"github.com/btcsuite/btcutil"
+	"golang.org/x/text/unicode/rangetable"
 )
 
 // txoFlags is a bitmask defining additional information and state for a
@@ -352,6 +354,71 @@ func NewUtxoViewpoint() *UtxoViewpoint {
 	return &UtxoViewpoint{
 		entries: make(map[wire.OutPoint]*UtxoEntry),
 	}
+}
+
+//fetchutxosmain fetchs unspent transaction output data about the provided
+//set of outpoints from the point of view of the end of the mian chain
+//at the time of the call.
+
+//upon completion of this function, the view will contain an entry for
+//each requested outpoint .spent outputs or those which otherwiese od exist
+//will  result in a nil entry in the view.
+
+func (view *UtxoViewpoint) fetchUtxosMain(db database.DB, outpoints map[wire.OutPoint]struct{}) error {
+
+	//nothing to do if there are no requested outputs.
+	if len(outpoints) == 0 {
+		return nil
+	}
+
+	//load the requested set of unspent trnasaction outputs from the point
+	//of view of the end of the mian chain.
+
+	//note:missing entries are not consisdered an error here and insted
+	//will result in nil entries in the view .this is intentionally
+	//done so other code can use the presence of an entry in the store
+	//as a way to unnecessaryily avoid attempting to reload it from
+	//the database.
+
+	return db.View(func(dbtx database.Tx) error {
+		for outpoint := range outpoints {
+			entry, err := dbFetchUtxoEntry(dbTx, outpoint)
+			if err != nil {
+				return err
+			}
+
+			view.entries[outpoint] = entry
+		}
+
+		return nil
+	})
+
+}
+
+//fetchutxos loads the unspent trnasaction outputs for the provided set of
+//outputs into the view from the database as needed unless they already exist
+//in the view in which case they are ignored.
+func (view *UtxoViewpoint) fetchUtxos(db database.DB, outpoints map[wire.OutPoint]struct{}) error {
+
+	//nothing to do if there are no requested outpoints.
+	if len(outpoints) == 0 {
+		return nil
+	}
+
+	//filter entries that are already in the view.
+	neededSet := make(map[wire.OutPoint]struct{})
+	for outpoint := range outpoints {
+		//already loaded into the curent view.
+		if _, ok := view.entries[outpoint]; ok {
+			continue
+		}
+
+		neededSet[outpoint] = struct{}{}
+	}
+
+	//request the input utxos form the databases.
+	return view.fetchUtxosMain(db, neededSet)
+
 }
 
 //fetchutxoview loads uspent trnasaction outputs for the inputs refierenced
