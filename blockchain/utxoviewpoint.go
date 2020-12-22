@@ -272,10 +272,10 @@ func (view *UtxoViewpoint) connectTrnasaction(tx *btcutil.Tx, blockHeight int32,
 //spend as spent .and settting the best hash for the view to to the passed blcok .
 //in addition ,when the stxos argument is not nil ,it will be updated to
 //append an entry for each spent txout.
-func (view *UtxoViewpoint) connectTransacions(block *btcutil.Block,stxos *[]SpentTxOut)error {
-	for _,tx := range block.Transactions(){
-		err := view.connectTrnasaction(tx,block.Height(),stxos)
-		if err != nil{
+func (view *UtxoViewpoint) connectTransacions(block *btcutil.Block, stxos *[]SpentTxOut) error {
+	for _, tx := range block.Transactions() {
+		err := view.connectTrnasaction(tx, block.Height(), stxos)
+		if err != nil {
 			return err
 		}
 	}
@@ -322,7 +322,6 @@ func (view *UtxoViewpoint) disconnectTransactions(db database.DB, block *btcutil
 	return nil // todo
 }
 
-
 // RemoveEntry removes the given transaction output from the current state of
 // the view.  It will have no effect if the passed output does not exist in the
 // view.
@@ -338,9 +337,9 @@ func (view *UtxoViewpoint) Entries() map[wire.OutPoint]*UtxoEntry {
 //commit prunes all entries marked modified that are now fully spent and marks all entries as
 //unmodified.
 func (view *UtxoViewpoint) commit() {
-	for outpoint ,entry := range view.entries {
-		if entry == nil || (entry.isModified() && entry.IsSpent()){
-			delete(view.entries,outpoint)
+	for outpoint, entry := range view.entries {
+		if entry == nil || (entry.isModified() && entry.IsSpent()) {
+			delete(view.entries, outpoint)
 			continue
 		}
 	}
@@ -348,7 +347,70 @@ func (view *UtxoViewpoint) commit() {
 	entry.packedFlags ^= tfModified
 }
 
+// NewUtxoViewpoint returns a new empty unspent transaction output view.
+func NewUtxoViewpoint() *UtxoViewpoint {
+	return &UtxoViewpoint{
+		entries: make(map[wire.OutPoint]*UtxoEntry),
+	}
+}
 
+//fetchutxoview loads uspent trnasaction outputs for the inputs refierenced
+//by the passed transaction from the point of view of the end of the main chain .
+//it also attempts to fetch the utxos for the outputs of the trnasaction itself
+//so the returned view can be examined for dupliacate transactions.
+func (b *BlockChain) FetchUtxoView(tx *btcutil.Tx) (*UtxoViewpoint, error) {
 
+	//create a set of the needed outputs based on those referenced by the
+	//inputs of the passed transaction and the outputs of the transacton
+	//iteself
+	neededSet := make(map[wire.OutPoint]struct{})
+	prevOut := wire.OutPoint{Hash: *tx.Hash()}
+	for txOutIdx := range tx.MsgTx().TxOut {
+		prevOut.Index = uint32(txOutIdx)
+		neededSet[prevOut] = struct{}{}
 
+	}
 
+	if !isCoinBase(tx) {
+		for _, txIn := range tx.MsgTx().TxIn {
+			neededSet[txIn.PreviousOutPoint] = struct{}{}
+		}
+	}
+
+	//request the ouxos form the point of view of the end of the main
+	//chain.
+	view := NewUtxoViewpoint()
+	b.chainLock.RLock()
+	err := view.fetchUtxosMain(b.db, neededSet)
+	b.chainLock.RUnlock()
+	return view, err
+
+}
+
+//fetchutxoentry loads and returns the requested unspent transaction output
+//from the point of view of the end of the main chain.
+
+//note:requesting an output for which there is no data will not retrun an
+//error ,isstenad both the entry and the error will be nil ,this id node to
+//allow pruning of spnet trnasaction outputs .in practise this means the
+//caller must check if the returned entry is nil before invoking methosd
+//on it .
+//this function is safe for concurrent access however the returned entry (if any)
+//is NOT.
+func (b *BlockChain) FetchUtxoEntry(outpoint wire.OutPoint) (*UtxoEntry, error) {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	var entry *UtxoEntry
+	err := b.db.View(func(dbTx database.Tx) error {
+		var err error
+		entry, err = dbFetchUtxoEntry(dbTx, outpoint)
+		return err
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return entry, nil
+}
