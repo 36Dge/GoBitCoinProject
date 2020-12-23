@@ -349,7 +349,6 @@ func (view *UtxoViewpoint) commit() {
 	entry.packedFlags ^= tfModified
 }
 
-
 //fetchutxosmain fetchs unspent transaction output data about the provided
 //set of outpoints from the point of view of the end of the mian chain
 //at the time of the call.
@@ -420,39 +419,58 @@ func (view *UtxoViewpoint) fetchUtxos(db database.DB, outpoints map[wire.OutPoin
 //the database as needed in particular reference entries that are
 //earlier in the block are added to the view and entries that
 //are already in the view are not modified.
-func (view *UtxoViewpoint)fetchInputUtxos(db database.DB,block *btcutil.Block)error {
+func (view *UtxoViewpoint) fetchInputUtxos(db database.DB, block *btcutil.Block) error {
 	//bulid a map of in_flight transaction because some of the inputs in
 	//this block could be refering other transaction earlider in this
 	//block which are not yet in the chain.
 	txInFlight := map[chainhash.Hash]int{}
 	transactions := block.Transactions()
-	for i ,tx := range transactions {
-		txInFlight [*tx.Hash()] = i
+	for i, tx := range transactions {
+		txInFlight[*tx.Hash()] = i
 	}
 
+	// Loop through all of the transaction inputs (except for the coinbase
+	// which has no inputs) collecting them into sets of what is needed and
+	// what is already known (in-flight).
 
+	neededSet := make(map[wire.OutPoint]struct{})
+	for i, tx := range transactions[1:] {
 
+		for _, txIn := range tx.MsgTx().TxIn {
 
+			//it is acceptable for a transaaction input to reference
+			//the output of another trnasaction in this block only
+			//if the reference transaction comes before the courrent
+			//one in this block .add the outputs of the referenced transaction
+			//as avaiblabe utxos when this is in the case. otherwise ,the utxo details .
+			//are still needed.
 
+			//note :the >= is corrent herre because i is one less than the actual positin
+			//of the transaction within the block due to skipping the coinbase.
 
+			originHash := &txIn.PrevoutOutPoint.Hash
+			if inFlightIndex, ok := txInFlight[*originHash]; ok &&
+				i >= inFlightIndex {
 
+				originTx := transactions[inFlightIndex]
+				view.AddTxOuts(originTx, block.Height())
+				continue
+			}
 
+			//dont request entries that are already in the view
+			//form the database.
+			if _, ok := view.entries[txIn.PreviousOutPoint]; ok {
+				continue
+			}
+
+			neededSet[txIn.PreviousOutPoint] = struct{}{}
+
+		}
+	}
+
+	//request the input utxos from the database
+	return view.fetchUtxosMain(db, neededSet)
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // NewUtxoViewpoint returns a new empty unspent transaction output view.
 func NewUtxoViewpoint() *UtxoViewpoint {
@@ -460,7 +478,6 @@ func NewUtxoViewpoint() *UtxoViewpoint {
 		entries: make(map[wire.OutPoint]*UtxoEntry),
 	}
 }
-
 
 //fetchutxoview loads uspent trnasaction outputs for the inputs refierenced
 //by the passed transaction from the point of view of the end of the main chain .
