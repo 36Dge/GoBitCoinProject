@@ -539,3 +539,5 @@ func (b *BlockChain) FetchUtxoEntry(outpoint wire.OutPoint) (*UtxoEntry, error) 
 
 	return entry, nil
 }
+
+//over
