@@ -107,6 +107,45 @@ func isDbBucketNotFoundErr(err error) bool {
 	return ok && dbErr.ErrorCode == database.ErrBucketNotFound
 }
 
+//dbfetcversion fetches an individual version with the given key from the
+//metadata bucket it it priamriily used to track versions on entities such as
+//buckets it returns zeros if the provided key does not exist.
+func dbFetchVersion (dbTx database.Tx,key []byte ) uint32 {
+	serialized := dbTx.Metadata().Get(key)
+	if serialized == nil {
+		return 0
+	}
+
+	return byteOrder.Uint32(serialized[:])
+}
+
+
+//dbputversion uses an existing database transaction to update the provided
+//key in the metadata buckert to the given version . it is primarily used to
+//track versions on entities such as buckets.
+func dbPutVersion(dbTx database.Tx ,key []byte ,version uint32) error{
+	var serialized [4]byte
+	byteOrder.PutUint32(serialized[:],version)
+	return dbTx.Metadata().Put(key ,serialized[:])
+}
+
+// dbFetchOrCreateVersion uses an existing database transaction to attempt to
+// fetch the provided key from the metadata bucket as a version and in the case
+// it doesn't exist, it adds the entry with the provided default version and
+// returns that.  This is useful during upgrades to automatically handle loading
+// and adding version keys as necessary.
+func dbFetchOrCreateVersion(dbTx database.Tx, key []byte, defaultVersion uint32) (uint32, error) {
+	version := dbFetchVersion(dbTx, key)
+	if version == 0 {
+		version = defaultVersion
+		err := dbPutVersion(dbTx, key, version)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	return version, nil
+}
 
 
 
