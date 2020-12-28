@@ -4,6 +4,7 @@ import (
 	"BtcoinProject/database"
 	"BtcoinProject/wire"
 	"encoding/binary"
+	"github.com/btcsuite/btcutil"
 )
 
 const (
@@ -68,18 +69,17 @@ var (
 type errNotInMainChain string
 
 //error implements the error interface.
-func (e errNotInMainChain) Error()string {
+func (e errNotInMainChain) Error() string {
 	return string(e)
 }
 
 //innotinmainchainerr returns whether or not the passed error is an
 //errnotinmianchain error
-func isNotInMainChainErr (err error) bool {
-	_,ok := err.(errNotInMainChain)
+func isNotInMainChainErr(err error) bool {
+	_, ok := err.(errNotInMainChain)
 	return ok
 
 }
-
 
 //errDeserilaize signafies that a problem was encouted when deserilaizing
 //data.
@@ -87,16 +87,14 @@ type errDeserialize string
 
 //error implemnts the error interface
 
-func (e errDeserialize) Error()string {
+func (e errDeserialize) Error() string {
 	return string(e)
 }
 
-
-
 //isdeserializeerr returns whether or not the passed error is an errdeserialize
 //error
-func isDeserializeErr(err error)bool  {
-	_,ok := err.(errDeserialize)
+func isDeserializeErr(err error) bool {
+	_, ok := err.(errDeserialize)
 	return ok
 }
 
@@ -110,7 +108,7 @@ func isDbBucketNotFoundErr(err error) bool {
 //dbfetcversion fetches an individual version with the given key from the
 //metadata bucket it it priamriily used to track versions on entities such as
 //buckets it returns zeros if the provided key does not exist.
-func dbFetchVersion (dbTx database.Tx,key []byte ) uint32 {
+func dbFetchVersion(dbTx database.Tx, key []byte) uint32 {
 	serialized := dbTx.Metadata().Get(key)
 	if serialized == nil {
 		return 0
@@ -119,14 +117,13 @@ func dbFetchVersion (dbTx database.Tx,key []byte ) uint32 {
 	return byteOrder.Uint32(serialized[:])
 }
 
-
 //dbputversion uses an existing database transaction to update the provided
 //key in the metadata buckert to the given version . it is primarily used to
 //track versions on entities such as buckets.
-func dbPutVersion(dbTx database.Tx ,key []byte ,version uint32) error{
+func dbPutVersion(dbTx database.Tx, key []byte, version uint32) error {
 	var serialized [4]byte
-	byteOrder.PutUint32(serialized[:],version)
-	return dbTx.Metadata().Put(key ,serialized[:])
+	byteOrder.PutUint32(serialized[:], version)
+	return dbTx.Metadata().Put(key, serialized[:])
 }
 
 // dbFetchOrCreateVersion uses an existing database transaction to attempt to
@@ -237,8 +234,6 @@ func dbFetchOrCreateVersion(dbTx database.Tx, key []byte, defaultVersion uint32)
 // when this spent txout is spending the last unspent output of the containing
 // transaction.
 
-
-
 type SpentTxOut struct {
 	// Amount is the amount of the output.
 	Amount int64
@@ -252,3 +247,49 @@ type SpentTxOut struct {
 	// Denotes if the creating tx is a coinbase.
 	IsCoinBase bool
 }
+
+//fetchspendjournal attempts to retrive the spend journal .or the set of
+//outputs spent  for the target block .this provides a view of all the outputs
+//that will be consumed once the target block is connected to the end of the
+//main chain.
+
+//this function is safe for concurrent access.
+func (b *BlockChain) FetchSpendJournal(targetBlock *btcutil.Tx) ([]SpentTxOut, error) {
+	b.chainLock.RUnlock()
+	defer b.chainLock.RUnlock()
+
+	var spendEntries []SpentTxOut
+	err := b.db.View(func(dbTx database.Tx) error {
+		var err error
+
+		spendEntries, err = dbFetchSpendJournalEntry(dbTx, targetBlock)
+		return err
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return spendEntries, nil
+}
+
+//spendtxoutheadercode returns the calculated header code to be used when
+//serializing the provided stxo entry.
+func spentTxOutHeaderCode(stxo *SpentTxOut) uint64 {
+
+	//as described in the serialized format comments .the header code
+	//encodes the height shifted over one bit and the cooinbase in the
+	//lowest bit.
+	headerCode := uint64(stxo.Height) << 1
+	if stxo.IsCoinBase {
+		headerCode |= 0x01
+
+	}
+
+	return headerCode
+
+}
+
+
+
+
