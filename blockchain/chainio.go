@@ -290,6 +290,37 @@ func spentTxOutHeaderCode(stxo *SpentTxOut) uint64 {
 
 }
 
+//spenttxoutserializesize returns the number of bytes it would take to
+//serialize the passed stxo accourding to the format described above.
+func spentTxOutSerializeSize(stxo *SpentTxOut) int {
+	size := serializeSizeVLQ(spentTxOutHeaderCode(stxo))
+	if stxo.Height > 0 {
+		//the legacy v1 sepnd journal format conditionally tracked the
+		//containing trnasaction version when the height when the height was
+		//non -zero , so this is required for backwards comapt.
+		size += serializeSizeVLQ(0)
 
+	}
 
+	return size + compressedTxOutSize(uint64(stxo.Amount), stxo.PkScript)
 
+}
+
+//putspenttxout serializes the passed stxo accourding to the format
+//described above directyly into the passed target byte slice the target
+//byte slice must be at least large enough to hanld the number of btyes
+//ruturned by the spendtxoutserializesize function or it will panic.
+func putSpentTxOut(target []byte, stxo *SpentTxOut) int {
+	headerCode := spentTxOutHeaderCode(stxo)
+	offset := putVLQ(target, headerCode)
+	if stxo.Height > 0 {
+		//the legacy vl spend journal format conditionally tracked the
+		//containing trasaction version when the height was non-zero .
+		//so this is required for backwards compat.
+		offset += putVLQ(target[offset:], 0)
+
+	}
+
+	return offset + putCompressedTxOut(target[offset:], uint64(stxo.Amount), stxo.PkScript)
+
+}
