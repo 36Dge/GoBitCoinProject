@@ -3,7 +3,9 @@ package blockchain
 import (
 	"BtcoinProject/database"
 	"BtcoinProject/wire"
+	"bytes"
 	"encoding/binary"
+	"fmt"
 	"github.com/btcsuite/btcutil"
 )
 
@@ -324,3 +326,55 @@ func putSpentTxOut(target []byte, stxo *SpentTxOut) int {
 	return offset + putCompressedTxOut(target[offset:], uint64(stxo.Amount), stxo.PkScript)
 
 }
+
+//decodespenttxout decodes the passed serialized stxo entry .possibly followed
+//by other data. into the passed stxo struct .it return the number of bytes
+//read.
+func decodeSpentTxOut(serialized []byte, stxo *SpentTxOut) (int, error) {
+	//ensure there are bytes to decode
+	if len(serialized) == 0 {
+		return 0, errDeserialize("no serialized bytes")
+	}
+
+	//desrialize the header code.
+	code, offset := deserializeVLQ(serialized)
+	if offset >= len(serialized) {
+		return offset, errDeserialize("unexpected end of data after " +
+			"header code")
+	}
+
+	//decode the header code.
+
+	//bit 0 indicates containing transaction is a coinbase
+	//bits 1-x encode height of containing transaction
+
+	stxo.IsCoinBase = code&0x01 != 0
+	stxo.Height = int32(code >> 1)
+	if stxo.Height > 0 {
+
+		//the legacy v1 spend journal format conditionally tracked the
+		//containing tranaction version when then height was non-zero,
+		//so this is required for backwards compat.
+
+		_, bytesRead := deserializeVLQ(serialized[offset:])
+		offset += bytesRead
+		if offset >= len(serialized) {
+			return offset, errDeserialize("unpected end of data " +
+				"after reserved")
+		}
+	}
+	//decode the compressed txout.
+	amount, pkScript, bytesRead, err := decodeCompressedTxOut(serialized[offset:])
+	offset += bytesRead
+	if err != nil {
+		return offset, errDeserialize(fmt.Sprintf("unable to decode "+
+			"txout : %v", err))
+	}
+
+	stxo.Amount = int64(amount)
+	stxo.PkScript = pkScript
+	return offset, nil
+
+}
+
+
