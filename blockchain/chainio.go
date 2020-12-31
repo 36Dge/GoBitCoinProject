@@ -377,4 +377,61 @@ func decodeSpentTxOut(serialized []byte, stxo *SpentTxOut) (int, error) {
 
 }
 
+//deserializespendjournalentry decodes the passed serialized byte
+//slice into a slice of spent txouts accourding to the format
+//desciribed in detail above
+//since the serializeation format is not self descriring as noted in teh
+//format comments this function aslo required the trnasactions that
+//spend the txtous .
+func deserializeSpendJournalEntry(serialized []byte, txns []*wire.MsgTx) ([]SpentTxOut, error) {
+	//calculate the total number of stxos.
+	var numStxos int
+	for _, tx := range txns {
+		numStxos += len(tx.TxIn)
+	}
+
+	//when a block has no spent txouts there is nothing to serialize.
+	if len(serialized) == 0 {
+		//ensure the block actually has no stxos .this should never
+		//happen unless there is database corrupution or an empty entry
+		//erroneously made its way into the database.
+		if numStxos != 0 {
+			return nil, AssertError(fmt.Sprintf("mismatched spend "+
+				"journal serialization - no serialization for "+
+				"expected %d stxos ", numStxos))
+		}
+		return nil, nil
+	}
+
+	//loop backwards through all transaction so everything is read in
+	//reverse order to match the serialization order.
+
+	stxoIdx := numStxos - 1
+	offset := 0
+	stxos := make([]SpentTxOut, numStxos)
+	for txIdx := len(txns) - 1; txIdx > -1; txIdx-- {
+		tx := txns[txIdx]
+
+		//loop backwards throuhgh all of the transaction inputs and read
+		//the associated stxos
+		for txInIdx := len(tx.TxIn) - 1; txInIdx > -1; txIdx-- {
+			txIn := tx.TxIn[txInIdx]
+			stxo := &stxos[stxoIdx]
+			stxoIdx--
+
+			n, err := decodeSpentTxOut(serialized[offset:], stxo)
+			offset += n
+			if err != nil {
+				return nil, errDeserialize(fmt.Sprintf("unable"+
+					"to decode stxo for %v:%v",
+					txIn.PreviousOutPoint, err))
+			}
+		}
+	}
+
+	return stxos, nil
+
+}
+
+
 
