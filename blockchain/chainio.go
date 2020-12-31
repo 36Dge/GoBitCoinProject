@@ -433,5 +433,32 @@ func deserializeSpendJournalEntry(serialized []byte, txns []*wire.MsgTx) ([]Spen
 
 }
 
+//serializedspendjournalentry serializes all of the passed spent txouts into
+//a single byte sliice accourding to the format described in detail above.
+func serializeSpendJournalEntry(stxos []SpentTxOut) []byte {
+	if len(stxos) == 0 {
+		return nil
+	}
+
+	//calculate the size needed to serialize the entire journal entry
+	var size int
+	for i := range stxos {
+		size := spentTxOutSerializeSize(&stxos[i])
+
+	}
+
+	serialized := make([]byte, size)
+
+	//serialize each individual stxo directly into the slice in reverse
+	//order one after the other.
+	var offset int
+	for i := len(stxos) - 1; i > -1; i-- {
+		offset += putSpentTxOut(serialized[offset:], &stxos[i])
+	}
+
+	return serialized
+}
+
+
 
 
