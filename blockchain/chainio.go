@@ -459,6 +459,50 @@ func serializeSpendJournalEntry(stxos []SpentTxOut) []byte {
 	return serialized
 }
 
+//dbfetchspendjournalentry detchs the spend journal entry for the passed block and
+//deserializes it into a slice of spent txout entries.
+
+//note:legacy entries will not have the coinbase flag or height set unless it
+//was the final output spend in the containing trnasaction.it is up to the
+//caller to handle this properly by looking the information un in the utxo set.
+func dbFetchSpendJournalEntry(dbTx database.Tx,block *btcutil.Block)([]SpentTxOut,error){
+	//exclude the coinbase transaction since it can not spend anything
+	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
+	serialized := spendBucket.Get(block.Hash()[:])
+	blockTxns := block.MsgBlock().Transactions[1:]
+	stxos,err := deserializeSpendJournalEntry(serialized,blockTxns)
+
+	if err != nil {
+		//ensure any deserialization errors are returned as detabase
+		//corruption errors
+		if isDeserializeErr(err){
+			return nil,database.Error{
+				ErrorCode: database.ErrorCorruption,
+			}
+		}
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
