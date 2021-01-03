@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/database"
 	"BtcoinProject/wire"
 	"bytes"
@@ -486,3 +487,33 @@ func dbFetchSpendJournalEntry(dbTx database.Tx, block *btcutil.Block) ([]SpentTx
 	}
 	return stxos, nil
 }
+
+
+// dbPutSpendJournalEntry uses an existing database transaction to update the
+// spend journal entry for the given block hash using the provided slice of
+// spent txouts.   The spent txouts slice must contain an entry for every txout
+// the transactions in the block spend in the order they are spent.
+func dbPutSpendJournalEntry(dbTx database.Tx, blockHash *chainhash.Hash, stxos []SpentTxOut) error {
+	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
+	serialized := serializeSpendJournalEntry(stxos)
+	return spendBucket.Put(blockHash[:], serialized)
+}
+
+// dbRemoveSpendJournalEntry uses an existing database transaction to remove the
+// spend journal entry for the passed block hash.
+func dbRemoveSpendJournalEntry(dbTx database.Tx, blockHash *chainhash.Hash) error {
+	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
+	return spendBucket.Delete(blockHash[:])
+}
+
+
+
+
+
+
+
+
+
+
+
+
