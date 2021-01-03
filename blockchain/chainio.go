@@ -506,6 +506,88 @@ func dbRemoveSpendJournalEntry(dbTx database.Tx, blockHash *chainhash.Hash) erro
 	return spendBucket.Delete(blockHash[:])
 }
 
+// -----------------------------------------------------------------------------
+// The unspent transaction output (utxo) set consists of an entry for each
+// unspent output using a format that is optimized to reduce space using domain
+// specific compression algorithms.  This format is a slightly modified version
+// of the format used in Bitcoin Core.
+//
+// Each entry is keyed by an outpoint as specified below.  It is important to
+// note that the key encoding uses a VLQ, which employs an MSB encoding so
+// iteration of utxos when doing byte-wise comparisons will produce them in
+// order.
+//
+// The serialized key format is:
+//   <hash><output index>
+//
+//   Field                Type             Size
+//   hash                 chainhash.Hash   chainhash.HashSize
+//   output index         VLQ              variable
+//
+// The serialized value format is:
+//
+//   <header code><compressed txout>
+//
+//   Field                Type     Size
+//   header code          VLQ      variable
+//   compressed txout
+//     compressed amount  VLQ      variable
+//     compressed script  []byte   variable
+//
+// The serialized header code format is:
+//   bit 0 - containing transaction is a coinbase
+//   bits 1-x - height of the block that contains the unspent txout
+//
+// Example 1:
+// From tx in main blockchain:
+// Blk 1, 0e3e2357e806b6cdb1f70b54c3a3a17b6714ee1f0e68bebb44a74b1efd512098:0
+//
+//    03320496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52
+//    <><------------------------------------------------------------------>
+//     |                                          |
+//   header code                         compressed txout
+//
+//  - header code: 0x03 (coinbase, height 1)
+//  - compressed txout:
+//    - 0x32: VLQ-encoded compressed amount for 5000000000 (50 BTC)
+//    - 0x04: special script type pay-to-pubkey
+//    - 0x96...52: x-coordinate of the pubkey
+//
+// Example 2:
+// From tx in main blockchain:
+// Blk 113931, 4a16969aa4764dd7507fc1de7f0baa4850a246de90c45e59a3207f9a26b5036f:2
+//
+//    8cf316800900b8025be1b3efc63b0ad48e7f9f10e87544528d58
+//    <----><------------------------------------------>
+//      |                             |
+//   header code             compressed txout
+//
+//  - header code: 0x8cf316 (not coinbase, height 113931)
+//  - compressed txout:
+//    - 0x8009: VLQ-encoded compressed amount for 15000000 (0.15 BTC)
+//    - 0x00: special script type pay-to-pubkey-hash
+//    - 0xb8...58: pubkey hash
+//
+// Example 3:
+// From tx in main blockchain:
+// Blk 338156, 1b02d1c8cfef60a189017b9a420c682cf4a0028175f2f563209e4ff61c8c3620:22
+//
+//    a8a2588ba5b9e763011dd46a006572d820e448e12d2bbb38640bc718e6
+//    <----><-------------------------------------------------->
+//      |                             |
+//   header code             compressed txout
+//
+//  - header code: 0xa8a258 (not coinbase, height 338156)
+//  - compressed txout:
+//    - 0x8ba5b9e763: VLQ-encoded compressed amount for 366875659 (3.66875659 BTC)
+//    - 0x01: special script type pay-to-script-hash
+//    - 0x1d...e6: script hash
+// -----------------------------------------------------------------------------
+
+// maxUint32VLQSerializeSize is the maximum number of bytes a max uint32 takes
+// to serialize as a VLQ.
+
+
 
 
 
