@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/btcsuite/btcutil"
+	"sync"
 )
 
 const (
@@ -586,6 +587,17 @@ func dbRemoveSpendJournalEntry(dbTx database.Tx, blockHash *chainhash.Hash) erro
 
 // maxUint32VLQSerializeSize is the maximum number of bytes a max uint32 takes
 // to serialize as a VLQ.
+
+var maxUint32VLQSerializeSize = serializeSizeVLQ(1<<32 - 1)
+
+//outpointkeypool defines a concurrent safe free list of byte slices used
+//to provide tempory buffers for outpoint database keys.
+var outpointKeyPool = sync.Pool{New: func() interface{}{
+	b := make([]byte,chainhash.HashSize+maxUint32VLQSerializeSize)
+	return &b
+	//pointer to slice to avoid boxing alloc.
+}}
+
 
 
 
