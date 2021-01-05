@@ -598,6 +598,33 @@ var outpointKeyPool = sync.Pool{New: func() interface{}{
 	//pointer to slice to avoid boxing alloc.
 }}
 
+//outpointkey returns a key suitable for use a database key in th utxo
+//set while making use of a free list .a new buffer is allocated if
+//there are not already any avaibable on the free list. the returned byte
+// slice should be returned to the free list by using the reycleoutpointkey
+//function when the caller id done with it_unless_ the slice will need to
+//live for longer than the caller calculate such as when used to wirte to
+//the database.
+func outpointKey(outpoint wire.OutPoint) *[]byte {
+	//a vlq employs an msg encoding .so they are useful not only to redue
+	//the amount of storage space. but also so internation of utxos when
+	//doing byte_wise comparisions will produce them in order.
+	key := outpointKeyPool.Get().(*[]byte)
+	idx := uint64(outpoint.Index)
+	*key = (*key)[:chainhash.HashSize + serializeSizeVLQ(idx)]
+	copy(*key,outpoint.Hash[:])
+	putVLQ((*key)[chainhash.HashSize:],idx)
+	return key
+}
+
+//recycleoutpointkey puts the provided bytes slice.which should have been
+//obtained via the outpointKey function .back on the free list.
+func recycleOutpointKey(key *[]byte){
+	outpointKeyPool.Put(key)
+}
+
+
+
 
 
 
