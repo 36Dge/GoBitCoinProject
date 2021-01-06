@@ -489,7 +489,6 @@ func dbFetchSpendJournalEntry(dbTx database.Tx, block *btcutil.Block) ([]SpentTx
 	return stxos, nil
 }
 
-
 // dbPutSpendJournalEntry uses an existing database transaction to update the
 // spend journal entry for the given block hash using the provided slice of
 // spent txouts.   The spent txouts slice must contain an entry for every txout
@@ -592,8 +591,8 @@ var maxUint32VLQSerializeSize = serializeSizeVLQ(1<<32 - 1)
 
 //outpointkeypool defines a concurrent safe free list of byte slices used
 //to provide tempory buffers for outpoint database keys.
-var outpointKeyPool = sync.Pool{New: func() interface{}{
-	b := make([]byte,chainhash.HashSize+maxUint32VLQSerializeSize)
+var outpointKeyPool = sync.Pool{New: func() interface{} {
+	b := make([]byte, chainhash.HashSize+maxUint32VLQSerializeSize)
 	return &b
 	//pointer to slice to avoid boxing alloc.
 }}
@@ -611,17 +610,40 @@ func outpointKey(outpoint wire.OutPoint) *[]byte {
 	//doing byte_wise comparisions will produce them in order.
 	key := outpointKeyPool.Get().(*[]byte)
 	idx := uint64(outpoint.Index)
-	*key = (*key)[:chainhash.HashSize + serializeSizeVLQ(idx)]
-	copy(*key,outpoint.Hash[:])
-	putVLQ((*key)[chainhash.HashSize:],idx)
+	*key = (*key)[:chainhash.HashSize+serializeSizeVLQ(idx)]
+	copy(*key, outpoint.Hash[:])
+	putVLQ((*key)[chainhash.HashSize:], idx)
 	return key
 }
 
 //recycleoutpointkey puts the provided bytes slice.which should have been
 //obtained via the outpointKey function .back on the free list.
-func recycleOutpointKey(key *[]byte){
+func recycleOutpointKey(key *[]byte) {
 	outpointKeyPool.Put(key)
 }
+
+//utxoentryheadercode returns the calculted header code to be used when
+//serializing the provided utxo entry.
+func utxoEntryHeaderCode(entry *UtxoEntry) (uint64, error) {
+	if entry.IsSpent() {
+		return 0, AssertError("attmpt to serialize spent utxo header")
+
+	}
+
+	//as describe in the serialition format conments the header code
+	//encodes the height shifted over on bit and the coinbase flag in
+	//the lowest bit.
+	headerCode := uint64(entry.BlockHeight()) << 1
+	if entry.IsCoinBase() {
+		headerCode |= 0x01
+	}
+
+	return headerCode, nil
+}
+
+
+
+
 
 
 
