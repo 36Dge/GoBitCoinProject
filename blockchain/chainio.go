@@ -4,7 +4,6 @@ import (
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/database"
 	"BtcoinProject/wire"
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"github.com/btcsuite/btcutil"
@@ -640,6 +639,28 @@ func utxoEntryHeaderCode(entry *UtxoEntry) (uint64, error) {
 
 	return headerCode, nil
 }
+
+
+// -----------------------------------------------------------------------------
+// The block index consists of two buckets with an entry for every block in the
+// main chain.  One bucket is for the hash to height mapping and the other is
+// for the height to hash mapping.
+//
+// The serialized format for values in the hash to height bucket is:
+//   <height>
+//
+//   Field      Type     Size
+//   height     uint32   4 bytes
+//
+// The serialized format for values in the height to hash bucket is:
+//   <hash>
+//
+//   Field      Type             Size
+//   hash       chainhash.Hash   chainhash.HashSize
+// -----------------------
+
+
+
 
 
 
