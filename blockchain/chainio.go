@@ -640,6 +640,32 @@ func utxoEntryHeaderCode(entry *UtxoEntry) (uint64, error) {
 	return headerCode, nil
 }
 
+//serializedutxo entry returns the entry serialized to a format that is
+//is suitalbe for long-term storage .the format is describe in detail above
+func serializeUtxoEntry(entry *UtxoEntry) ([]byte, error) {
+	//spent outputs have no serialization
+	if entry.IsSpent() {
+		return nil, nil
+	}
+
+	//encode the header code.
+	headerCode, err := utxoEntryHeaderCode(entry)
+	if err != nil {
+		return nil, err
+	}
+
+	//calculate the size needed to serialize the entry
+	size := serializeSizeVLQ(headerCode) +
+		compressedTxOutSize(uint64(entry.Amount()), entry.PkScript())
+
+	//serialize the header code followed by the compressed unspent trnasaction
+	//output.
+	serialized := make([]byte, size)
+	offset := putVLQ(serialized, headerCode)
+	offset += putCompressedTxOut(serialized[offset:], uint64(entry.Amount()), entry.PkScript())
+
+	return serialized, nil
+}
 
 // -----------------------------------------------------------------------------
 // The block index consists of two buckets with an entry for every block in the
@@ -658,26 +684,3 @@ func utxoEntryHeaderCode(entry *UtxoEntry) (uint64, error) {
 //   Field      Type             Size
 //   hash       chainhash.Hash   chainhash.HashSize
 // -----------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
