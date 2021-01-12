@@ -667,6 +667,43 @@ func serializeUtxoEntry(entry *UtxoEntry) ([]byte, error) {
 	return serialized, nil
 }
 
+//deserializeutxentry decodes a uxto entry from the passed serialized byte
+//slice into a new uxtoentry using  a format that is suitable for long-term
+//sotorage the format is descirible in detail above.
+func deserializeUtxoEntry(serialized []byte) (*UtxoEntry, error) {
+	//deserialize the header code.
+	code, offset := deserializeVLQ(serialized)
+	if offset >= len(serialized) {
+		return nil, errDeserialize("unexpeted end of data after header")
+	}
+
+	//decode the header code.
+	//bit 0 indicates whether the containing transaction is a coinbase .
+	//bit 1-x encode height of containing trnasaction
+	isCoinBase := code&0x01 != 0
+	blockHeight := int32(code >> 1)
+
+	//decode the compressed unspent transaction output.
+	amount, pkScript, _, err := decodeCompressedTxOut(serialized[offset:])
+	if err != nil {
+		return nil, errDeserialize(fmt.Sprintf("unable to decode "+
+			"utxo :%v", err))
+	}
+
+	entry := &UtxoEntry{
+		amount:      int64(amount),
+		pkScript:    pkScript,
+		blockHeight: blockHeight,
+		packedFlags: 0,
+	}
+
+	if isCoinBase {
+		entry.packedFlags |= tfCoinBase
+	}
+
+	return entry, nil
+}
+
 // -----------------------------------------------------------------------------
 // The block index consists of two buckets with an entry for every block in the
 // main chain.  One bucket is for the hash to height mapping and the other is
