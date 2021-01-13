@@ -4,6 +4,7 @@ import (
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/database"
 	"BtcoinProject/wire"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"github.com/btcsuite/btcutil"
@@ -702,6 +703,39 @@ func deserializeUtxoEntry(serialized []byte) (*UtxoEntry, error) {
 	}
 
 	return entry, nil
+}
+
+//dbfetchutxoentrybyhash attempts to find and fetch a utxo for the given hash
+//it uses a cursor and seek to try and do this as efficiently as possible.
+//when there are no entries for the provided hash nil will be returned for the
+//both the entry and the error.
+func dbFetchUtxoEntryByHash(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry, error) {
+	//attempt to find an entry by seeking for the hash along with a zero
+	//index ,dut to the fact the keys are serialized as <hash><index> ,
+	//where the index uses an msb encoding .if there are any entries  for
+	//the hash at all .one will be found.
+
+	cursor := dbTx.Metadata().Bucket(utxoSetBucketName).Cursor()
+	key := outpointKey(wire.OutPoint{Hash: *hash, Index: 0})
+	ok := cursor.Seek(*key)
+	recycleOutpointKey(key)
+	if !ok {
+		return nil, nil
+	}
+
+	//an entry was found .but it could just be an entry with the next
+	//highest hash after the requested one .so make sure the hashes
+	//acutally match .
+	cursorKey := cursor.Key()
+	if len(cursorKey) < chainhash.HashSize {
+		return nil, nil
+	}
+	if !bytes.Equal(hash[:], cursorKey[:chainhash.HashSize]) {
+		return nil, nil
+	}
+
+	return deserializeUtxoEntry(cursor.Value())
+
 }
 
 // -----------------------------------------------------------------------------
