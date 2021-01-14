@@ -738,6 +738,67 @@ func dbFetchUtxoEntryByHash(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry,
 
 }
 
+//dbfetchutxo entry uses an existing database trnasaction to fetch the specifed
+//trnasaction output form the utxo set.
+//when threr is no entry for the provided output .nil will be returned for both
+//the entry and the error.
+func dbFetchUtxoEntry(dbTx database.Tx,outpoint wire.OutPoint)(*UtxoEntry,error) {
+	//fetch the unspent transaction output information for the passed
+	//transaction output.return now when there is no netry .
+	key := outpointKey(outpoint)
+	utxoBucket := dbTx.Metadata().Bucket(utxoSetBucketName)
+	serializeUtxo := utxoBucket.Get(*key)
+	recycleOutpointKey(key)
+	if serializeUtxo == nil{
+		return nil,nil
+	}
+
+
+	//a non-nil zero-length entry meas there is an entry in the database
+	//for a spent trnasation output which should never be the case.
+	if len(serializeUtxo) == 0 {
+		return nil ,AssertError(fmt.Sprintf("database contains entry"+
+			"for spent tx output %v ",outpoint))
+
+	}
+
+	//deserialize the utxo entry and return it.
+	entry ,err := deserializeUtxoEntry(serializeUtxo)
+	if err != nil{
+		//ensure and deserialzation errors are returned as database
+		//corruption errors .
+		if isDeserializeErr(err){
+			return nil ,database.Error{
+				ErrorCode:   database.ErrCorruption,
+				Description: fmt.Sprintf("corrupt utxo entry" +"for %v :%v",outpoint,err),
+				Err:         nil,
+			}
+		}
+
+		return nil ,err
+	}
+
+	return entry,nil
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // -----------------------------------------------------------------------------
 // The block index consists of two buckets with an entry for every block in the
 // main chain.  One bucket is for the hash to height mapping and the other is
