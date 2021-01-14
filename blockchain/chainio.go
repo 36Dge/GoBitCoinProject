@@ -742,62 +742,88 @@ func dbFetchUtxoEntryByHash(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry,
 //trnasaction output form the utxo set.
 //when threr is no entry for the provided output .nil will be returned for both
 //the entry and the error.
-func dbFetchUtxoEntry(dbTx database.Tx,outpoint wire.OutPoint)(*UtxoEntry,error) {
+func dbFetchUtxoEntry(dbTx database.Tx, outpoint wire.OutPoint) (*UtxoEntry, error) {
 	//fetch the unspent transaction output information for the passed
 	//transaction output.return now when there is no netry .
 	key := outpointKey(outpoint)
 	utxoBucket := dbTx.Metadata().Bucket(utxoSetBucketName)
 	serializeUtxo := utxoBucket.Get(*key)
 	recycleOutpointKey(key)
-	if serializeUtxo == nil{
-		return nil,nil
+	if serializeUtxo == nil {
+		return nil, nil
 	}
-
 
 	//a non-nil zero-length entry meas there is an entry in the database
 	//for a spent trnasation output which should never be the case.
 	if len(serializeUtxo) == 0 {
-		return nil ,AssertError(fmt.Sprintf("database contains entry"+
-			"for spent tx output %v ",outpoint))
+		return nil, AssertError(fmt.Sprintf("database contains entry"+
+			"for spent tx output %v ", outpoint))
 
 	}
 
 	//deserialize the utxo entry and return it.
-	entry ,err := deserializeUtxoEntry(serializeUtxo)
-	if err != nil{
+	entry, err := deserializeUtxoEntry(serializeUtxo)
+	if err != nil {
 		//ensure and deserialzation errors are returned as database
 		//corruption errors .
-		if isDeserializeErr(err){
-			return nil ,database.Error{
+		if isDeserializeErr(err) {
+			return nil, database.Error{
 				ErrorCode:   database.ErrCorruption,
-				Description: fmt.Sprintf("corrupt utxo entry" +"for %v :%v",outpoint,err),
+				Description: fmt.Sprintf("corrupt utxo entry"+"for %v :%v", outpoint, err),
 				Err:         nil,
 			}
 		}
 
-		return nil ,err
+		return nil, err
 	}
 
-	return entry,nil
+	return entry, nil
 }
 
+//dbpututxoview uses an existing database transaction to update the utxo
+//set in the databse  on the provoded utxo view contents and state .
+//in particular .only the entries that have been markded as modified are
+//writen  to the database.
+func dbPutUtxoView(dbTx database.Tx, view *UtxoViewpoint) error {
+	utxoBucket := dbTx.Metadata().Bucket(utxoSetBucketName)
+	for outpoint, entry := range view.entries {
+		//no need to update the database if the entry was not modified
+		if entry == nil || !entry.isModified() {
+			continue
+		}
 
+		//remove the utxo entry if it is spent .
+		if entry.IsSpent() {
+			key := outpointKey(outpoint)
+			err := utxoBucket.delete(*key)
+			recycleOutpointKey(key)
+			if err != nil {
+				return err
+			}
 
+			continue
+		}
 
+		//serialize and store the utxo entry .
+		serialized, err := serializeUtxoEntry(entry)
+		if err != nil {
+			return err
+		}
 
+		key := outpointKey(outpoint)
+		err = utxoBucket.Put(*key, serialized)
 
+		//note:the key is intentionly not recycled here since the
+		//database interface contranct prohibits modifitions. it will
+		//be garbage collected normally when the database is done with
+		//it .
+		if err != nil {
+			return err
+		}
+	}
 
-
-
-
-
-
-
-
-
-
-
-
+	return nil
+}
 
 // -----------------------------------------------------------------------------
 // The block index consists of two buckets with an entry for every block in the
@@ -816,3 +842,8 @@ func dbFetchUtxoEntry(dbTx database.Tx,outpoint wire.OutPoint)(*UtxoEntry,error)
 //   Field      Type             Size
 //   hash       chainhash.Hash   chainhash.HashSize
 // -----------------------
+
+
+
+
+
