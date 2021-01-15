@@ -843,6 +843,47 @@ func dbPutUtxoView(dbTx database.Tx, view *UtxoViewpoint) error {
 //   hash       chainhash.Hash   chainhash.HashSize
 // -----------------------
 
+//dbputblockindex uses an existing database transaction to update or
+//add the block index entries for the hash to height and height to hash
+//mapping for the provided values .
+func dbPutBlockIndex(dbTx database.Tx,hash *chainhash.Hash,height int32) error {
+	//serialize the height for use in the index entries.
+	var serializeHeight [4]byte
+	byteOrder.PutUint32(serializeHeight[:],uint32(height))
+
+	//add the block hash to height mapping to the index
+	meta := dbTx.Metadata()
+	hashindex := meta.Bucket(hashIndexBucketName)
+	if err := hashindex.Put(hash[:],serializeHeight[:]); err != nil {
+		return err
+	}
+
+	//add the block height to hash mapping to the index
+	heightIndex := meta.Bucket(heightIndexBucketName)
+	return heightIndex.Put(serializedHeight[:],hash[:])
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
