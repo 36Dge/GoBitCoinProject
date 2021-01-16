@@ -863,6 +863,31 @@ func dbPutBlockIndex(dbTx database.Tx,hash *chainhash.Hash,height int32) error {
 	return heightIndex.Put(serializedHeight[:],hash[:])
 }
 
+//deremoveblockindex uses an existing database transaction remvoe block
+//index entries from the hash to height to hash mappings for the provided
+//values
+func dbRemoveBlockIndex(dbTx database.Tx,hash *chainhash.Hash,height int32) error {
+	//remove the block hash to height mapping
+	meta := dbTx.Metadata()
+	hashIndex := meta.Bucket(hashIndexBucketName)
+	if err := hashIndex.Delete(hash[:]); err != nil{
+		return err
+	}
+
+	//remove the block height to hash mapping
+	var serializedHeight [4]byte
+	byteOrder.PutUint32(serializedHeight[:],uint32(height))
+
+	heightIndex := meta.Bucket(heightIndexBucketName)
+	return heightIndex.Delete(serializedHeight[:])
+
+}
+
+
+
+
+
+
 
 
 
