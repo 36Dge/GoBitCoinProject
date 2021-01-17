@@ -883,7 +883,19 @@ func dbRemoveBlockIndex(dbTx database.Tx,hash *chainhash.Hash,height int32) erro
 
 }
 
+//dbfetchheigthbyhash useds an existing database trasaction to retrive the
+//height for the provided hash from the index
+func dbFetchHeightByHash(dbTx database.Tx,hash *chainhash.Hash) (int32 ,error){
+	meta := dbTx.Metadata()
+	hashIndex := meta.Bucket(hashIndexBucketName)
+	serializedHeight := hashIndex.Get(hash[:])
+	if serializedHeight == nil {
+		str := fmt.Sprintf("block %s is not in the main chain ", hash)
+		return 0,errNotInMainChain(str)
+	}
 
+	return int32(byteOrder.Uint32(serializedHeight)),nil
+}
 
 
 
