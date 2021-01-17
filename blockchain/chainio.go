@@ -897,6 +897,29 @@ func dbFetchHeightByHash(dbTx database.Tx,hash *chainhash.Hash) (int32 ,error){
 	return int32(byteOrder.Uint32(serializedHeight)),nil
 }
 
+//dbfentchhashbyheight uses an existing database trnasaction to retrive the
+//hash for the provided height from the index.
+func dbFetchHashByHeight(dbTx database.Tx ,height int32) (*chainhash.Hash,error){
+	var serializedHeight [4]byte
+	byteOrder.PutUint32(serializedHeight[:],uint32(height))
+
+	meta := dbTx.Metadata()
+	heightIndex := meta.Bucket(heightIndexBucketName)
+	hashBytes := heightIndex.Get(serializedHeight[:])
+	if hashBytes == nil{
+		str := fmt.Sprintf("no block at height %d exists ",height)
+		return nil ,errNotInMainChain(str)
+	}
+
+	var hash chainhash.Hash
+	copy(hash[:],hashBytes)
+	return &hash,nil
+
+}
+
+
+
+
 
 
 
