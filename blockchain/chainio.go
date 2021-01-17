@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/btcsuite/btcutil"
+	"math/big"
 	"sync"
 )
 
@@ -846,37 +847,37 @@ func dbPutUtxoView(dbTx database.Tx, view *UtxoViewpoint) error {
 //dbputblockindex uses an existing database transaction to update or
 //add the block index entries for the hash to height and height to hash
 //mapping for the provided values .
-func dbPutBlockIndex(dbTx database.Tx,hash *chainhash.Hash,height int32) error {
+func dbPutBlockIndex(dbTx database.Tx, hash *chainhash.Hash, height int32) error {
 	//serialize the height for use in the index entries.
 	var serializeHeight [4]byte
-	byteOrder.PutUint32(serializeHeight[:],uint32(height))
+	byteOrder.PutUint32(serializeHeight[:], uint32(height))
 
 	//add the block hash to height mapping to the index
 	meta := dbTx.Metadata()
 	hashindex := meta.Bucket(hashIndexBucketName)
-	if err := hashindex.Put(hash[:],serializeHeight[:]); err != nil {
+	if err := hashindex.Put(hash[:], serializeHeight[:]); err != nil {
 		return err
 	}
 
 	//add the block height to hash mapping to the index
 	heightIndex := meta.Bucket(heightIndexBucketName)
-	return heightIndex.Put(serializedHeight[:],hash[:])
+	return heightIndex.Put(serializedHeight[:], hash[:])
 }
 
 //deremoveblockindex uses an existing database transaction remvoe block
 //index entries from the hash to height to hash mappings for the provided
 //values
-func dbRemoveBlockIndex(dbTx database.Tx,hash *chainhash.Hash,height int32) error {
+func dbRemoveBlockIndex(dbTx database.Tx, hash *chainhash.Hash, height int32) error {
 	//remove the block hash to height mapping
 	meta := dbTx.Metadata()
 	hashIndex := meta.Bucket(hashIndexBucketName)
-	if err := hashIndex.Delete(hash[:]); err != nil{
+	if err := hashIndex.Delete(hash[:]); err != nil {
 		return err
 	}
 
 	//remove the block height to hash mapping
 	var serializedHeight [4]byte
-	byteOrder.PutUint32(serializedHeight[:],uint32(height))
+	byteOrder.PutUint32(serializedHeight[:], uint32(height))
 
 	heightIndex := meta.Bucket(heightIndexBucketName)
 	return heightIndex.Delete(serializedHeight[:])
@@ -885,66 +886,76 @@ func dbRemoveBlockIndex(dbTx database.Tx,hash *chainhash.Hash,height int32) erro
 
 //dbfetchheigthbyhash useds an existing database trasaction to retrive the
 //height for the provided hash from the index
-func dbFetchHeightByHash(dbTx database.Tx,hash *chainhash.Hash) (int32 ,error){
+func dbFetchHeightByHash(dbTx database.Tx, hash *chainhash.Hash) (int32, error) {
 	meta := dbTx.Metadata()
 	hashIndex := meta.Bucket(hashIndexBucketName)
 	serializedHeight := hashIndex.Get(hash[:])
 	if serializedHeight == nil {
 		str := fmt.Sprintf("block %s is not in the main chain ", hash)
-		return 0,errNotInMainChain(str)
+		return 0, errNotInMainChain(str)
 	}
 
-	return int32(byteOrder.Uint32(serializedHeight)),nil
+	return int32(byteOrder.Uint32(serializedHeight)), nil
 }
 
 //dbfentchhashbyheight uses an existing database trnasaction to retrive the
 //hash for the provided height from the index.
-func dbFetchHashByHeight(dbTx database.Tx ,height int32) (*chainhash.Hash,error){
+func dbFetchHashByHeight(dbTx database.Tx, height int32) (*chainhash.Hash, error) {
 	var serializedHeight [4]byte
-	byteOrder.PutUint32(serializedHeight[:],uint32(height))
+	byteOrder.PutUint32(serializedHeight[:], uint32(height))
 
 	meta := dbTx.Metadata()
 	heightIndex := meta.Bucket(heightIndexBucketName)
 	hashBytes := heightIndex.Get(serializedHeight[:])
-	if hashBytes == nil{
-		str := fmt.Sprintf("no block at height %d exists ",height)
-		return nil ,errNotInMainChain(str)
+	if hashBytes == nil {
+		str := fmt.Sprintf("no block at height %d exists ", height)
+		return nil, errNotInMainChain(str)
 	}
 
 	var hash chainhash.Hash
-	copy(hash[:],hashBytes)
-	return &hash,nil
+	copy(hash[:], hashBytes)
+	return &hash, nil
 
 }
 
+//-------
+//the best chain state consits of the best block hash and heigth ,the total
+//number of trnasations up to and including those in the best block ,and
+//the accummlated work sum up to and including the best block.
 
+//the serialized format is :
+//-------
 
+//bestchainstate represent the data to be stored the database for the
+//current best chain state.
+type bestChainState struct {
+	hash      chainhash.Hash
+	height    uint32
+	totalTxns uint64
+	workSum   *big.Int
+}
 
+//serializebestchainstate returns the serialztion of the passed block
+//best chain state. this is data to be stored in the chain state bucket
+func serializeBestChainState(state bestChainState) []byte {
+	//calculate the full size needed to serialize the chain state.
+	workSumBytes := state.workSum.Bytes()
+	workSumBytesLen := uint32(len(workSumBytes))
+	serializedLen := chainhash.HashSize + 4 + 8 + 4 + workSumBytesLen
 
+	//serialize the chain state .
 
+	// Serialize the chain state.
+	serializedData := make([]byte, serializedLen)
+	copy(serializedData[0:chainhash.HashSize], state.hash[:])
+	offset := uint32(chainhash.HashSize)
+	byteOrder.PutUint32(serializedData[offset:], state.height)
+	offset += 4
+	byteOrder.PutUint64(serializedData[offset:], state.totalTxns)
+	offset += 8
+	byteOrder.PutUint32(serializedData[offset:], workSumBytesLen)
+	offset += 4
+	copy(serializedData[offset:], workSumBytes)
+	return serializedData[:]
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+}
