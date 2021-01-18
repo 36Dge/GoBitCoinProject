@@ -959,3 +959,50 @@ func serializeBestChainState(state bestChainState) []byte {
 	return serializedData[:]
 
 }
+
+
+
+//deserializebestchainstate deserializes the passed serialized best chain
+//state .this is data stored in the chain state bucket and is updated after
+//every block is connected or disconnected form the main chain
+
+func deserializeBestChainState(serializedData []byte) (bestChainState, error) {
+
+	//ensur the serialized data has enough bytes to properly deserialize
+	//the hash,height ,total transactions and work sum length.
+	if len(serializedData) < chainhash.HashSize + 16 {
+		return bestChainState{},database.Error{
+			ErrorCode:   database.ErrCorruption,
+			Description: "corrupt best chain state",
+		}
+	}
+
+
+	state := bestChainState{}
+	copy(state.hash[:],serializedData[0:chainhash.HashSize])
+	offset := uint32(chainhash.HashSize)
+	state.height = byteOrder.Uint32(serializedData[offset:offset+4])
+	offset += 4
+	state.totalTxns = byteOrder.Uint64(serializedData[offset:offset+8])
+	offset += 8
+	workSumBytesLen := byteOrder.Uint32(serializedData[offset:offset+4])
+
+	offset += 4
+
+
+	//ensure the serialized data has enough bytes to deserialize the
+	//work sum.
+	if uint32(len(serializedData[offset:])) < workSumBytesLen {
+		return bestChainState{}, database.Error{
+			ErrorCode:   database.ErrCorruption,
+			Description: "corruption best chain state",
+		}
+
+	}
+
+	workSumBytes := serializedData[offset :offset+workSumBytesLen]
+	state.workSum = new(big.Int).SetBytes(workSumBytes)
+
+	return state,nil
+
+}
