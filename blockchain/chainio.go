@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"math/big"
 	"sync"
+	"time"
 )
 
 const (
@@ -960,8 +961,6 @@ func serializeBestChainState(state bestChainState) []byte {
 
 }
 
-
-
 //deserializebestchainstate deserializes the passed serialized best chain
 //state .this is data stored in the chain state bucket and is updated after
 //every block is connected or disconnected form the main chain
@@ -970,25 +969,23 @@ func deserializeBestChainState(serializedData []byte) (bestChainState, error) {
 
 	//ensur the serialized data has enough bytes to properly deserialize
 	//the hash,height ,total transactions and work sum length.
-	if len(serializedData) < chainhash.HashSize + 16 {
-		return bestChainState{},database.Error{
+	if len(serializedData) < chainhash.HashSize+16 {
+		return bestChainState{}, database.Error{
 			ErrorCode:   database.ErrCorruption,
 			Description: "corrupt best chain state",
 		}
 	}
 
-
 	state := bestChainState{}
-	copy(state.hash[:],serializedData[0:chainhash.HashSize])
+	copy(state.hash[:], serializedData[0:chainhash.HashSize])
 	offset := uint32(chainhash.HashSize)
-	state.height = byteOrder.Uint32(serializedData[offset:offset+4])
+	state.height = byteOrder.Uint32(serializedData[offset : offset+4])
 	offset += 4
-	state.totalTxns = byteOrder.Uint64(serializedData[offset:offset+8])
+	state.totalTxns = byteOrder.Uint64(serializedData[offset : offset+8])
 	offset += 8
-	workSumBytesLen := byteOrder.Uint32(serializedData[offset:offset+4])
+	workSumBytesLen := byteOrder.Uint32(serializedData[offset : offset+4])
 
 	offset += 4
-
 
 	//ensure the serialized data has enough bytes to deserialize the
 	//work sum.
@@ -1000,9 +997,126 @@ func deserializeBestChainState(serializedData []byte) (bestChainState, error) {
 
 	}
 
-	workSumBytes := serializedData[offset :offset+workSumBytesLen]
+	workSumBytes := serializedData[offset : offset+workSumBytesLen]
 	state.workSum = new(big.Int).SetBytes(workSumBytes)
 
-	return state,nil
+	return state, nil
 
 }
+
+//dbputbeststate uses a existing database trnasaction to update the bet
+//chain state with the given parameters
+func dbPutBestState(dbTx database.Tx, snapshot *BestState, workSum *big.Int) error {
+	//serialize the current best chain state.
+	serializedData := serializeBestChainState(bestChainState{
+		hash:      snapshot.Hash,
+		height:    uint32(snapshot.Height),
+		totalTxns: snapshot.TotalTxns,
+		workSum:   workSum,
+	})
+
+	//store the current best chain state into the database
+	return dbTx.Metadata().Put(chainStateKeyName, serializedData)
+}
+
+//createchainstate initlizes both the database and the chain state to the
+//genesis block ,this includes creating the necessary bukcet and inserting
+//the genesis block .so it must only be called on an uninitialized database.
+func (b *BlockChain) createChainState() error {
+	//create a new node from the genesis block and set is as the best node.
+	genesisBlock := btcutil.NewBlock(b.chainParams.GenesisBlock)
+	genesisBlock.SetHeight(0)
+	header := &genesisBlock.MsgBlock().Header
+	node := newBlockNode(header, nil)
+	node.status = statusDataStored | statusValid
+	b.bestChain.setTip(node)
+
+	//add the new node to the index wihich is used for faster lookups
+	b.index.addNode(node)
+
+	//initialize the state related to the best block .since it is the
+	//genesis block .use its timestmp for the median time.
+	numTxns := uint64(len(genesisBlock.MsgBlock().Transactions))
+	blockSize := uint64(genesisBlock.MsgBlock().Serialize())
+	blockWeight := uint64(GetBlockWeight(genesisBlock))
+	b.stateSnapshot = newBestState(node, blockSize, blockWeight, numTxns, numTxns, time.Unix(node.timestamp, 0))
+
+	//create the intiial the database chain state inlcuing creating the
+	//necessary index buckets and inserting the genesis block
+	err := b.db.Update(func(dbTx database.Tx) error {
+		meta := dbTx.Metadata()
+
+		//create the bucket that houses the block index data.
+		_, err := meta.CreateBucket(blockIndexBucketName)
+		if err != nil {
+			return err
+		}
+
+		//create the bucket that hourse the chain block hash to height
+		//index .
+		_, err = meta.CreateBucket(hashIndexBucketName)
+		if err != nil {
+			return err
+		}
+
+		//create the bucket that hourse the chain block height to hash
+		//index
+		_, err = meta.CreateBucket(heightIndexBucketName)
+		if err != nil {
+			return err
+		}
+
+		// Create the bucket that houses the spend journal data and
+		// store its version.
+		_, err = meta.CreateBucket(spendJournalBucketName)
+		if err != nil {
+			return err
+		}
+		err = dbPutVersion(dbTx, utxoSetVersionKeyName,
+			latestUtxoSetBucketVersion)
+		if err != nil {
+			return err
+		}
+
+		// Create the bucket that houses the utxo set and store its
+		// version.  Note that the genesis block coinbase transaction is
+		// intentionally not inserted here since it is not spendable by
+		// consensus rules.
+		_, err = meta.CreateBucket(utxoSetBucketName)
+		if err != nil {
+			return err
+		}
+		err = dbPutVersion(dbTx, spendJournalVersionKeyName,
+			latestSpendJournalBucketVersion)
+		if err != nil {
+			return err
+		}
+
+		// Save the genesis block to the block index database.
+		err = dbStoreBlockNode(dbTx, node)
+		if err != nil {
+			return err
+		}
+
+		// Add the genesis block hash to height and height to hash
+		// mappings to the index.
+		err = dbPutBlockIndex(dbTx, &node.hash, node.height)
+		if err != nil {
+			return err
+		}
+
+		// Store the current best chain state into the database.
+		err = dbPutBestState(dbTx, b.stateSnapshot, node.workSum)
+		if err != nil {
+			return err
+		}
+
+		// Store the genesis block into the database.
+		return dbStoreBlock(dbTx, genesisBlock)
+
+	})
+	return err
+
+}
+
+
