@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcutil"
 	"math/big"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -1119,4 +1120,163 @@ func (b *BlockChain) createChainState() error {
 
 }
 
+//initchainstate attempts to load and intialize the chain state from the
+//database .when the db does not yet contain any chain state .both it and the
+//chain state are initialized to the genesis block.
+func (b *BlockChain) initChainState() error {
+	//determine the state of the chain database .we may need to initialize
+	//everything from scratch or upgarade certain buckets
+	var initialized, hasBlockIndex bool
+	err := b.db.View(func(dbTx database.Tx) error {
+		initialized = dbTx.Metadata().Get(chainStateKeyName) != nil
+		hasBlockIndex = dbTx.Metadata().Bucket(blockIndexBucketName) != nil
+		return nil
+	})
+	if err != nil {
+		return err
+	}
 
+	if !initialized {
+		//at this point the database has not already been initialized .so
+		//initialize both it and the chain state to the genesis block.
+		return b.createChainState()
+	}
+	if !hasBlockIndex {
+		err := migrateBlockIndex(b.db)
+		if err != nil {
+			return nil
+		}
+	}
+
+	//attempt to load the chain state from the database
+	err = b.db.View(func(dbTx database.Tx) error {
+		//fetch the sotored chain state from the database metabase
+		//when it does.t exist .it means the database has not been
+		//initialized for use with chain yet .so break out now to
+		//allow that happen under a wiriable database transaction
+		serializedData := dbTx.Metadata().Get(chainStateKeyName)
+		log.Tracef("serialized chain state :%x", serializedData)
+		state, err := deserializeBestChainState(serializedData)
+		if err != nil {
+			return err
+		}
+
+		//load all of the headers form the database for the konwn best
+		//chain and construct the block index accoudingly Since the
+		// number of nodes are already known, perform a single alloc
+		// for them versus a whole bunch of little ones to reduce
+		// pressure on the GC.
+		log.Infof("loading block index...")
+
+		blockIndexBucket := dbTx.Metadata().Bucket(blockIndexBucketName)
+
+		//determine how many blocks will be loaded into the index so wen
+		//can allocate the right amount.
+		var blockCount int32
+		cursor := blockIndexBucket.Cursor()
+		for ok := cursor.First(); ok; ol = cursor.Next() {
+			blockCount++
+		}
+
+		blockNodes := make([]blockNode, blockCount)
+
+		var i int32
+		var lastNode *blockNode
+
+		cursor = blockIndexBucket.Cursor()
+		for ok := cursor.First(); ok; ok = cursor.Next() {
+			header, status, err := deserializeBlockRow(cursor.Value())
+			if err != nil {
+				return err
+			}
+			//determine the parent block node.since we iterate block headers
+			//in order of height ,if the blocks are mostly linear there is a
+			//very good chance the previous header processed is the parent
+			var parent *blockNode
+			if lastNode == nil {
+				blockHash := header.Blockhash()
+				if !blockHash.isEqual(b.chainParams.GenesisHash) {
+					return AssertError(fmt.Sprintf("initChainState: Expected "+
+						"first entry in block index to be genesis block, "+
+						"found %s", blockHash))
+				}
+			} else if header.prevBlock == lastNode.hash {
+				// Since we iterate block headers in order of height, if the
+				// blocks are mostly linear there is a very good chance the
+				// previous header processed is the parent.
+				parent = lastNode
+			} else {
+				parent = b.index.LookupNode(&header.PrevBlock)
+				if parent == nil {
+					return AssertError(fmt.Sprintf("initChainState: Could "+
+						"not find parent for block %s", header.BlockHash()))
+				}
+			}
+
+			//initialize the block node for the block,connect it
+			//and add it the the block index.
+			node := &blockNodes[i]
+			initBlockNode(node, header, parent)
+			node.status = status
+			b.index.addNode(node)
+
+			lastNode = node
+			i++
+
+		}
+
+		//set the best chain view to the stored best state.
+		tip := b.index.LookupNode(&state.hash)
+		if tip == nil {
+			return AssertError(fmt.Sprintf("initChainState: cannot find "+
+				"chain tip %s in block index", state.hash))
+		}
+		b.bestChain.setTip(tip)
+
+		//load the raw block bytes for the best block.
+		blockBytes, err := dbTx.FetchBlock(&state.hash)
+		if err != nil {
+			return err
+		}
+		var block wire.MsgBlock
+		err = block.Deserialize(bytes.NewReader(blockBytes))
+		if err != nil {
+			return err
+		}
+
+		//as a final consistency check,we will run throngh all the nodes
+		//which are ancestors of the current chain tip .and mark them as
+		//valid if they are not already marked as such ,this is a safe assumption
+		//all the block before the current tip are valid by defination.
+		for iterNode := tip; iterNode != nil; iterNode = iterNode.parent {
+			// If this isn't already marked as valid in the index, then
+			// we'll mark it as valid now to ensure consistency once
+			// we're up and running.
+			if !iterNode.status.KnownInvalid() {
+				log.Infof("Block %v (height=%v) ancestor of "+
+					"chain tip not marked as valid, "+
+					"upgrading to valid for consistency",
+					iterNode.hash, iterNode.height)
+				b.index.SetStatusFlags(iterNode, statusValid)
+			}
+		}
+
+		//initiaze the state related to the best block.
+		blockSize := uint64(len(blockBytes))
+		blockWeight := uint64(GetBlockWeight(btcutil.NewBlock(&block)))
+		numTxns := uint64(len(block.Transactions))
+		b.stateSnapshot = newBestState(tip, blockSize, blockWeight, numTxns, state.totalTxns, tip.CalcPastMedianTime())
+
+		return nil
+
+	})
+	if err != nil {
+		return err
+	}
+
+	// As we might have updated the index after it was loaded, we'll
+	// attempt to flush the index to the DB. This will only result in a
+	// write if the elements are dirty, so it'll usually be a noop.
+	return b.index.flushToDB()
+
+}
