@@ -1280,3 +1280,47 @@ func (b *BlockChain) initChainState() error {
 	return b.index.flushToDB()
 
 }
+
+//deserializeblockrow parses a value in the block index bucket into a
+//a block header and block status bitfield
+func deserializeBlockRow(blockRow []byte) (*wire.BlockHeader,blockStatus,error) {
+	buffer := bytes.NewReader(blockRow)
+
+	var header wire.BlockHeader
+	err := header.Deserialize(buffer)
+	if err != nil {
+		return nil,statusNone,err
+	}
+
+	statusByte ,err := buffer.ReadByte()
+	if err != nil {
+		return nil,statusNone,err
+	}
+
+	return &header ,blockStatus(statusByte) ,nil
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
