@@ -1283,44 +1283,49 @@ func (b *BlockChain) initChainState() error {
 
 //deserializeblockrow parses a value in the block index bucket into a
 //a block header and block status bitfield
-func deserializeBlockRow(blockRow []byte) (*wire.BlockHeader,blockStatus,error) {
+func deserializeBlockRow(blockRow []byte) (*wire.BlockHeader, blockStatus, error) {
 	buffer := bytes.NewReader(blockRow)
 
 	var header wire.BlockHeader
 	err := header.Deserialize(buffer)
 	if err != nil {
-		return nil,statusNone,err
+		return nil, statusNone, err
 	}
 
-	statusByte ,err := buffer.ReadByte()
+	statusByte, err := buffer.ReadByte()
 	if err != nil {
-		return nil,statusNone,err
+		return nil, statusNone, err
 	}
 
-	return &header ,blockStatus(statusByte) ,nil
+	return &header, blockStatus(statusByte), nil
 }
 
+//dbfetchheaderbyhash uses an existing database transaction to retrive the
+//block header for the provided hash.
+func dbFetchHeaderByHash(dbTx database.Tx, hash *chainhash.Hash) (*wire.BlockHeader, error) {
+	headerBytes, err := dbTx.FetchBlockHeader(hash)
+	if err != nil {
+		return nil, err
+	}
 
+	var header wire.BlockHeader
+	err = header.Deserialize(bytes.NewReader(headerBytes))
+	if err != nil {
+		return nil, err
+	}
 
+	return &header, nil
+}
 
+//dbfetchheaderbyheight uses an existing database transaction to retrive the
+//block header for the provided height .
+func dbFetchHeaderByHeight(dbTx database.Tx, height int32) (*wire.BlockHeader, error) {
+	hash, err := dbFetchHashByHeight(dbTx, height)
+	if err != nil {
+		return nil, err
+	}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	return dbFetchHeaderByHash(dbTx, hash)
+}
 
 
