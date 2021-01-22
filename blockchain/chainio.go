@@ -1331,27 +1331,27 @@ func dbFetchHeaderByHeight(dbTx database.Tx, height int32) (*wire.BlockHeader, e
 //dbfetnchblockbynode uses an existing database trnasnaction to retrie
 //the raw block for the provided node. deserialize it .and return  a btcutil.blcok
 //with the height set.
-func dbFetchBlockByNode(dbTx database.Tx,node *blockNode)(*btcutil.Block,error) {
+func dbFetchBlockByNode(dbTx database.Tx, node *blockNode) (*btcutil.Block, error) {
 	//load the raw block bytes form the database
-	blockBytes ,err := dbTx.FetchBlock(&node.hash)
+	blockBytes, err := dbTx.FetchBlock(&node.hash)
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
 
 	//create the encapsulated block and set the height appropriately.
-	block ,err := btcutil.NewBlockFromBytes(blockBytes)
+	block, err := btcutil.NewBlockFromBytes(blockBytes)
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
 	block.SetHeight(node.height)
-	return block ,nil
+	return block, nil
 }
 
 //dbstoreblocknode stores the block header and validation status to the block
 //index bucket .this overwrite the current entry if there exists one.
-func dbStoreBlockNode(dbTx database.Tx ,node *blockNode) error {
+func dbStoreBlockNode(dbTx database.Tx, node *blockNode) error {
 	//serialize block data to be stored .
-	w := bytes.NewBuffer(make([]byte,0,blockHdrSize+1))
+	w := bytes.NewBuffer(make([]byte, 0, blockHdrSize+1))
 	header := node.Header()
 	err := header.Serialize(w)
 	if err != nil {
@@ -1359,7 +1359,7 @@ func dbStoreBlockNode(dbTx database.Tx ,node *blockNode) error {
 	}
 
 	err = w.WriteByte(byte(node.status))
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
@@ -1367,34 +1367,53 @@ func dbStoreBlockNode(dbTx database.Tx ,node *blockNode) error {
 
 	//write block header data to block index bucket .
 	blockIndexBucket := dbTx.Metadata().Bucket(blockIndexBucketName)
-	key := blockIndexKey(&node.hash,uint32(node.height))
-	return blockIndexBucket.Put(key ,value)
-
-
+	key := blockIndexKey(&node.hash, uint32(node.height))
+	return blockIndexBucket.Put(key, value)
 }
 
+// dbStoreBlock stores the provided block in the database if it is not already
+// there. The full block data is written to ffldb.
+func dbStoreBlock(dbTx database.Tx, block *btcutil.Block) error {
+	hasBlock, err := dbTx.HasBlock(block.Hash())
+	if err != nil {
+		return err
+	}
+	if hasBlock {
+		return nil
+	}
+	return dbTx.StoreBlock(block)
+}
 
+// blockIndexKey generates the binary key for an entry in the block index
+// bucket. The key is composed of the block height encoded as a big-endian
+// 32-bit unsigned int followed by the 32 byte block hash.
+func blockIndexKey(blockHash *chainhash.Hash, blockHeight uint32) []byte {
+	indexKey := make([]byte, chainhash.HashSize+4)
+	binary.BigEndian.PutUint32(indexKey[0:4], blockHeight)
+	copy(indexKey[4:chainhash.HashSize+4], blockHash[:])
+	return indexKey
+}
 
+//blockbyheight returns the block at the given hegiht in the main chain
+//this function is safe for concurrent access
+func (b *BlockChain) BlockByHeight(blockHeight int32) (*btcutil.Block, error) {
+	//lookup the block height in the best chain
+	node := b.bestChain.NodeByHeight(blockHeight)
+	if node == nil {
+		str := fmt.Sprintf("no block at height %d exists", blockHeight)
+		return nil, errNotInMainChain(str)
+	}
 
+	//load the block form the database and return it
+	var block *btcutil.Block
+	err := b.db.View(func(dbTx database.Tx) error {
+		var err error
+		block, err = dbFetchBlockByNode(dbTx, node)
+		return err
+	})
 
+	return block, err
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+}
 
 
