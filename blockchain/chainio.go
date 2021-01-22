@@ -1328,4 +1328,46 @@ func dbFetchHeaderByHeight(dbTx database.Tx, height int32) (*wire.BlockHeader, e
 	return dbFetchHeaderByHash(dbTx, hash)
 }
 
+//dbfetnchblockbynode uses an existing database trnasnaction to retrie
+//the raw block for the provided node. deserialize it .and return  a btcutil.blcok
+//with the height set.
+func dbFetchBlockByNode(dbTx database.Tx,node *blockNode)(*btcutil.Block,error) {
+	//load the raw block bytes form the database
+	blockBytes ,err := dbTx.FetchBlock(&node.hash)
+	if err != nil {
+		return nil,err
+	}
+
+	//create the encapsulated block and set the height appropriately.
+	block ,err := btcutil.NewBlockFromBytes(blockBytes)
+	if err != nil {
+		return nil,err
+	}
+	block.SetHeight(node.height)
+	return block ,nil
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
