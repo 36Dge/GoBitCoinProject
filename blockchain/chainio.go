@@ -1347,6 +1347,33 @@ func dbFetchBlockByNode(dbTx database.Tx,node *blockNode)(*btcutil.Block,error) 
 	return block ,nil
 }
 
+//dbstoreblocknode stores the block header and validation status to the block
+//index bucket .this overwrite the current entry if there exists one.
+func dbStoreBlockNode(dbTx database.Tx ,node *blockNode) error {
+	//serialize block data to be stored .
+	w := bytes.NewBuffer(make([]byte,0,blockHdrSize+1))
+	header := node.Header()
+	err := header.Serialize(w)
+	if err != nil {
+		return err
+	}
+
+	err = w.WriteByte(byte(node.status))
+	if err != nil{
+		return err
+	}
+
+	value := w.Bytes()
+
+	//write block header data to block index bucket .
+	blockIndexBucket := dbTx.Metadata().Bucket(blockIndexBucketName)
+	key := blockIndexKey(&node.hash,uint32(node.height))
+	return blockIndexBucket.Put(key ,value)
+
+
+}
+
+
 
 
 
