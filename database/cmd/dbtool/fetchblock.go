@@ -8,3 +8,4 @@ func(cmd *fetchBlockCmd)Usage() string{
 	return "<block-hash>"
 }
 
+//// Execute is the main entry point for the command.  It's invoked by the parser.
