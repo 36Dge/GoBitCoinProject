@@ -54,6 +54,19 @@ type Cursor interface {
 
 }
 
+//blockregion specifies a particular region of a block identified by the specifed hash
+//hash .given an offset and length.
+type BlockRegion struct {
+	Hash *chainhash.Hash
+	Offset uint32
+	Len uint32
+}
+
+
+
+
+
+
 type Tx interface {
 	Metadata() Bucket
 	StoreBlock(block *btcutil.Block) error
