@@ -4,6 +4,8 @@ import (
 	"BtcoinProject/chaincfg"
 	"BtcoinProject/database"
 	"BtcoinProject/wire"
+	"errors"
+	"fmt"
 	"github.com/btcsuite/btcutil"
 	"os"
 	"path/filepath"
@@ -70,3 +72,67 @@ func netName(chainParams *chaincfg.Params) string {
 		return chainParams.Name
 	}
 }
+
+//setupglobalconfig examine the global configruation optional for any contions which are
+//invalid as well as performs any additional setup necessary after the initial parse.
+func setupGlobalConfig() error {
+	//multiple newwork can be selected simultaneously
+	//count number of network flags pased;assing active network parses
+	//while we are at it
+	numNets := 0
+	if cfg.TestNet3 {
+		numNets++
+		activeNetParams = &chaincfg.TestNet3Params
+	}
+	if cfg.RegressionTest {
+		numNets++
+		activeNetParams = &chaincfg.ResgressionNetParams
+	}
+	if cfg.SimNet {
+		numNets++
+		activeNetParams = &chaincfg.SimNetParams
+	}
+
+	if numNets > 1 {
+		return errors.New("The testnet, regtest, and simnet params " +
+			"can't be used together -- choose one of the three")
+	}
+
+	//validate database type .
+	if !validDbType(cfg.DbType){
+		str := "The specified database type [%v] is invalid -- " +
+			"supported types %v"
+		return fmt.Errorf(str,cfg.DbType,knownDbTypes)
+	}
+
+	// Append the network type to the data directory so it is "namespaced"
+	// per network.  In addition to the block database, there are other
+	// pieces of data that are saved to disk such as address manager state.
+	// All data is specific to a network, so namespacing the data directory
+	// means each individual piece of serialized data does not have to
+	// worry about changing names per network and such.
+	cfg.DataDir = filepath.Join(cfg.DataDir, netName(activeNetParams))
+
+	return nil
+}
+
+//over
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
