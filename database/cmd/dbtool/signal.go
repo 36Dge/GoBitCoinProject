@@ -28,6 +28,7 @@ func mainInterruptHandler() {
 	for {
 
 		select {
+		case <-interruptChannel:
 		//ignore more than one shutdonn singal
 			if isShutdown {
 				log.Infof("recevied singal " +
@@ -41,7 +42,7 @@ func mainInterruptHandler() {
 			//run hanlder in lifo order.
 			for i := range interruptCallbacks {
 				idx := len(interruptCallbacks) - 1 - i
-				idx := len(interruptCallbacks[idx])
+				callback := interruptCallbacks[idx]
 				callback()
 
 			}
@@ -60,7 +61,7 @@ func mainInterruptHandler() {
 				handler()
 			}
 
-			interruptCallbacks = append(interruptCallbacks, handler())
+			interruptCallbacks = append(interruptCallbacks, handler)
 
 		}
 
