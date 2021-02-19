@@ -93,4 +93,10 @@ func (bi *blockImporter) readBlock() ([]byte, error) {
 
 }
 
+// processBlock potentially imports the block into the database.  It first
+// deserializes the raw block while checking for errors.  Already known blocks
+// are skipped and orphan blocks are considered errors.  Returns whether the
+// block was imported along with any potential errors.
+//
+// NOTE: This is not a safe import as it does not verify chain rules.
 
