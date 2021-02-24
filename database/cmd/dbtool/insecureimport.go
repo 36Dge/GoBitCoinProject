@@ -101,10 +101,104 @@ func (bi *blockImporter) readBlock() ([]byte, error) {
 //
 // NOTE: This is not a safe import as it does not verify chain rules.
 
-func (bi *blockImporter) processBlock(serializedBlock []byte) (bool ,error) {
+func (bi *blockImporter) processBlock(serializedBlock []byte) (bool, error) {
 	//deserialize the blcok which includes checks for malformed blocks.
 	block, err := btcutil.NewBlockFromBytes(serializedBlock)
 	if err != nil {
 		return false, err
 	}
+
+	//update progerss statistics
+	bi.lastBlockTime = block.MsgBlock().Header.Timestmap
+	bi.receivedLogTx += int64(len(block.MsgBlock().Transactions))
+
+	//skip blocks that already exist.
+	var exists bool
+	err = bi.db.View(func(tx database.Tx) error {
+		exists, err = tx.HasBlock(block.Hash())
+		return err
+	})
+	if err != nil {
+		return false, err
+	}
+
+	if exists {
+		return false, nil
+	}
+
+	//do not bother tryting to process opphans.
+	prevHash := &block.MsgBlock().header.PrevBlock
+	if !prevHash.isEqual(&zeroHash) {
+		var exists bool
+		err := bi.db.View(func(tx database.Tx) error {
+			exists, err = tx.HashBlock(prevHash)
+			return err
+		})
+
+		if err != nil {
+			return false, err
+		}
+
+		if !exists {
+			return false, fmt.Errorf("import file contains block "+
+				"%v which does not link ot the available "+
+				"block chain", prevHash)
+
+		}
+	}
+
+	//put the blocks into the database with no chekcing of chain rules
+	err = bi.db.Update(func(tx database.Tx) error {
+
+		return tx.storeBlock(block)
+
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+
 }
+
+//readhanlder is the main hanler for reading blocks form the import file.
+//this allow block processing to take place in parallel with block reads.
+//it must be ran as goroutine.
+func (bi *blockImporter) readHandler() {
+out:
+	for {
+		//read the next block from the file and if anything goes wrong
+		//notify the status hanlder with hte error and bail
+		serialedBlock, err := bi.readBlock()
+		if err != nil {
+			bi.errChan <- fmt.Errorf("error reading from input "+
+				"file :%v", err.Error())
+			break out
+
+		}
+
+		//a nil block withe no error means we are done.
+		if serialedBlock == nil {
+			break out
+
+		}
+
+		//send the block or quit if we are been singalled to exist by
+		//the status handler due to an error elsewhere.
+		select {
+		case bi.processQueue <- serialedBlock:
+		case <-bi.quit:
+			break out
+
+		}
+
+
+	}
+
+	//close teh processing channle to signal no more blocks are coming .
+	close(bi.processQueue)
+	bi.wg.Done()
+
+}
+
+
