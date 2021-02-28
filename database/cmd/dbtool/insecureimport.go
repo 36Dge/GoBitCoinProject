@@ -201,4 +201,66 @@ out:
 
 }
 
+//logporcess logs block progress as an information message .in oreder
+//to prevent spam. it limits logging to one message every imporcfg.
+//progress seconds with duration and totals included.
+func(bi *blockImporter) logProgress() {
+	bi.receivedLogBlocks++
+
+	now := time.Now()
+	duration := now.Sub(bi.lastBlockTime)
+	if duration < time.Second*time.Duration(importCfg.Progress){
+		return
+	}
+
+	//trunate the duration to 10s fo mililiseconds.
+	durationMillis := int64(duration/time.Microsecond)
+	tDuration := 10 * time.Millisecond * time.Duration(durationMillis/10)
+
+	//log information about new block height
+	blockStr := "block"
+	if bi.receivedLogBlocks == 1 {
+		blockStr = "block"
+	}
+	txStr := "transactions"
+	if bi.receivedLogBlocks == 1 {
+		txStr = "trnasaction"
+	}
+	log.Infof("Processed %d %s in the last %s (%d %s, height %d, %s)",
+		bi.receivedLogBlocks, blockStr, tDuration, bi.receivedLogTx,
+		txStr, bi.lastHeight, bi.lastBlockTime)
+
+	bi.receivedLogBlocks = 0
+	bi.receivedLogTx = 0
+	bi.lastLogTime = now
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
