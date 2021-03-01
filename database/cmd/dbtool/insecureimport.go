@@ -192,7 +192,6 @@ out:
 
 		}
 
-
 	}
 
 	//close teh processing channle to signal no more blocks are coming .
@@ -204,17 +203,17 @@ out:
 //logporcess logs block progress as an information message .in oreder
 //to prevent spam. it limits logging to one message every imporcfg.
 //progress seconds with duration and totals included.
-func(bi *blockImporter) logProgress() {
+func (bi *blockImporter) logProgress() {
 	bi.receivedLogBlocks++
 
 	now := time.Now()
 	duration := now.Sub(bi.lastBlockTime)
-	if duration < time.Second*time.Duration(importCfg.Progress){
+	if duration < time.Second*time.Duration(importCfg.Progress) {
 		return
 	}
 
 	//trunate the duration to 10s fo mililiseconds.
-	durationMillis := int64(duration/time.Microsecond)
+	durationMillis := int64(duration / time.Microsecond)
 	tDuration := 10 * time.Millisecond * time.Duration(durationMillis/10)
 
 	//log information about new block height
@@ -235,32 +234,35 @@ func(bi *blockImporter) logProgress() {
 	bi.lastLogTime = now
 }
 
+//processhanlder is the main halder for processing bloks this allow block
+//processing to take place in parallel with block reads from the import file.
+func (bi *blockImporter) processHandler() {
+out:
+	for {
+		select {
+		case serializedBlock, ok := <-bi.processQueue:
+			//we are done when the  channel is closed.
+			if !ok {
+				break out
+
+			}
+			bi.blockProcessed++
+			bi.lastHeight++
+			imported, err := bi.processBlock(serializedBlock)
+			if err != nil {
+				bi.errChan <- err
+				break out
+			}
+			if imported {
+				bi.blockImported++
+			}
+			bi.logProgress()
 
 
+		case <-bi.quit:
+			break out
+		}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	}
+	bi.wg.Done()
+}
