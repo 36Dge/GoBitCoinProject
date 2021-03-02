@@ -44,6 +44,7 @@ type blockImporter struct {
 	processQueue      chan []byte
 	doneChan          chan bool
 	errChan           chan error
+	quit              chan struct{}
 	wg                sync.WaitGroup
 	blockProcessed    int64
 	blockImported     int64
@@ -266,3 +267,74 @@ out:
 	}
 	bi.wg.Done()
 }
+
+//statushanler waits for updates from the importe opoeration and notifies the
+//passed donechan with the results of the import. it also causes all gortoutines
+//to exit if an error is reported from any of them.
+func (bi *blockImporter) statusHanler(resultsChan chan *importResults) {
+	select {
+	//an error from either of the goroutines means we are done so signal
+	//caller with the error and signal all goroutines to quit.
+	case err := <-bi.errChan:
+		resultsChan <- &importResults{
+			blocksProcessed: bi.blockProcessed,
+			blocksImported:  bi.blockImported,
+			err:             err,
+		}
+		close(bi.quit)
+
+	//the import finished normally.
+	case <-bi.doneChan:
+		resultsChan <- &importResults{
+			blocksProcessed: bi.blockImported,
+			blocksImported:  bi.blockImported,
+			err:             nil,
+		}
+	}
+}
+
+//import is the core function which handles importing the blocks from the file
+//associated with the block imported to the database. it returns a channel
+//on which the results will be returned when the operation has completed.
+func(bi *blockImporter)Import() chan  *importResults {
+	//start up the read and process handling goroutines. this setup allows
+	//blocks to be read from disk in parallel while being procesed.
+	bi.wg.Add(2)
+	go bi.readHandler()
+	go bi.processHandler()
+
+	//wait for the import to finish in a sepate goroutine and signal
+	//the status hanlder when done.
+	go func() {
+		bi.wg.Wait()
+		bi.doneChan <-true
+	}()
+
+	//start the status handler and return the result channel that it will
+	//send the rasults on when the import is done.
+	resultChan := make(chan *importResults)
+	go bi.statusHanler(resultChan)
+	return resultChan
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
