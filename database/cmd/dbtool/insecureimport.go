@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcutil"
 	"io"
+	"os"
 	"sync"
 	"time"
 )
@@ -296,7 +297,7 @@ func (bi *blockImporter) statusHanler(resultsChan chan *importResults) {
 //import is the core function which handles importing the blocks from the file
 //associated with the block imported to the database. it returns a channel
 //on which the results will be returned when the operation has completed.
-func(bi *blockImporter)Import() chan  *importResults {
+func (bi *blockImporter) Import() chan *importResults {
 	//start up the read and process handling goroutines. this setup allows
 	//blocks to be read from disk in parallel while being procesed.
 	bi.wg.Add(2)
@@ -307,7 +308,7 @@ func(bi *blockImporter)Import() chan  *importResults {
 	//the status hanlder when done.
 	go func() {
 		bi.wg.Wait()
-		bi.doneChan <-true
+		bi.doneChan <- true
 	}()
 
 	//start the status handler and return the result channel that it will
@@ -317,24 +318,52 @@ func(bi *blockImporter)Import() chan  *importResults {
 	return resultChan
 }
 
+//newblockimporter returns a new importer for the provided file reader
+//seeker and database
+func newBlockImporter(db database.DB, r io.ReadSeeker) *blockImporter {
+	return &blockImporter{
+		db:           db,
+		r:            r,
+		processQueue: make(chan []byte, 2),
+		doneChan:     make(chan bool),
+		errChan:      make(chan error),
+		quit:         make(chan struct{}),
+		lastLogTime:  time.Now(),
+	}
+}
 
+//execute is the main entry point for the command it is invoked by the parser.
+func (cmd *importCmd) Execute(args []string) error {
+	//setup the global config options and ensure they are valid.
+	if err := setupGlobalConfig(); err != nil {
+		return err
+	}
 
+	//ensure the specified block file exists.
+	if !fileExists(cmd.inFile) {
+		str := "the specified block file [%v]does not exist"
+		return fmt.Errorf(str, cmd.inFile)
+	}
 
+	//load the block database.
+	db, err := loadBlockDB()
+	if err != nil {
+		return err
+	}
 
+	defer db.Close()
 
+	//ensure the database is sync,d and closed on ctrl + c
+	addInterruptHandler(func() {
+		log.Infof("gracefully shutting down the database...")
+		db.Close()
+	})
+	fi, err := os.Open(importCfg.inFile)
+	if err != nil {
+		return err
+	}
+	defer fi.Close()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+}
 
 
