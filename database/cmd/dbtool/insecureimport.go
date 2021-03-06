@@ -364,6 +364,43 @@ func (cmd *importCmd) Execute(args []string) error {
 	}
 	defer fi.Close()
 
-}
+	//create a block importer for the database and input file and start it.
+	//the result chennel returned from start will contain an errror if anything
+	//went wrong.
+	importer := newBlockImporter(db, fi)
 
+	// Perform the import asynchronously and signal the main goroutine when
+	// done.  This allows blocks to be processed and read in parallel.  The
+	// results channel returned from Import contains the statistics about
+	// the import including an error if something went wrong.  This is done
+	// in a separate goroutine rather than waiting directly so the main
+	// goroutine can be signaled for shutdown by either completion, error,
+	// or from the main interrupt handler.  This is necessary since the main
+	// goroutine must be kept running long enough for the interrupt handler
+	// goroutine to finish.
+	go func() {
+		log.Info("starting import")
+		resultsChan := importer.Import()
+		results := <-resultsChan
+		if results.err != nil {
+			dbErr, ok := results.err.(database.Error)
+			if !ok || ok && dbErr.ErrorCode != database.ErrDbNotOpen {
+				shutdownChannel <- results.err
+				return
+			}
+		}
+
+		log.Infof("processed a total of %d blocks (%d imported ,%d "+
+			"already known)", results.blocksProcessed,
+			results.blocksImported,
+			results.blocksProcessed-results.blocksImported)
+		shutdownChannel <- nil
+	}()
+
+	//wait for shutdown signal from either a normal completion or from the interrupt handler.
+	err = <-shutdownChannel
+	return err
+
+}
+//over
 
