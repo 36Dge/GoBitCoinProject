@@ -3,9 +3,61 @@ package rpcclient
 import (
 	"BtcoinProject/chaincfg"
 	"container/list"
+	"errors"
 	"net/http"
 	"sync"
+	"time"
 )
+
+var (
+	//errIvvalAuth is an error to describe the condition where the client
+	//is either unable to authenticate or the specified endpoint is incorrrett.
+	ErrInvalidAuth = errors.New("authentication failure")
+
+	//errinvalidendpoint is an error to describe the condition where the
+	//websocket handshake failed with specified endpoint
+	ErrInvalidEndpoint = errors.New("the endpoint either does not support "+"websocket or does not exist")
+
+	//errClientNotConnected  is an error to descaribe the condition where websocket
+	//clente has been created ,but the connection was never established .this condition
+	//differs form errclientdisconnect ,which represents an estanlished connection that
+	//was lost.
+	ErrClientNotConnected = errors.New("the client was never connected")
+
+	ErrClientDisconnect = errors.New("the client has been disconnected")
+
+	ErrClientShutdown = errors.New("the client has been shutdown")
+
+	ErrNotWebsocketClient = errors.New("client is not configured for "+ "websockers")
+
+	ErrClientAlreadyConnected = errors.New("websocket client has already" + "connected")
+
+)
+
+const(
+	//sendbuffersize is the number of elements the websocket send channnel
+	//can queue before blocking .
+	sendBufferSize = 50
+
+	//sendPostbuffersize is the number of elements the https post send
+	//channel can queue before blocking
+	sendPostBufferSize = 100
+
+	//connectionRetryInterva is the amount of time to wait in between
+	//retries when automationcally reconnectiong to an RPc server.
+	connectionRetryInterval = time.Second * 5
+
+)
+
+
+
+
+
+
+
+
+
+
 
 //client represents a bitclient Rpc client which allows easy access to the
 //various rpc methods available on a bitcoin rpc server .each of the wrapper
@@ -18,6 +70,7 @@ import (
 // result of the invocation at some future time.  Invoking the Receive method on
 // the returned future will block until the result is available if it's not
 // already.
+
 type Client struct {
 	id uint64 // atomic, so must stay 64-bit aligned
 
