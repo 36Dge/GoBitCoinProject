@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -16,7 +17,7 @@ var (
 
 	//errinvalidendpoint is an error to describe the condition where the
 	//websocket handshake failed with specified endpoint
-	ErrInvalidEndpoint = errors.New("the endpoint either does not support "+"websocket or does not exist")
+	ErrInvalidEndpoint = errors.New("the endpoint either does not support " + "websocket or does not exist")
 
 	//errClientNotConnected  is an error to descaribe the condition where websocket
 	//clente has been created ,but the connection was never established .this condition
@@ -28,13 +29,12 @@ var (
 
 	ErrClientShutdown = errors.New("the client has been shutdown")
 
-	ErrNotWebsocketClient = errors.New("client is not configured for "+ "websockers")
+	ErrNotWebsocketClient = errors.New("client is not configured for " + "websockers")
 
 	ErrClientAlreadyConnected = errors.New("websocket client has already" + "connected")
-
 )
 
-const(
+const (
 	//sendbuffersize is the number of elements the websocket send channnel
 	//can queue before blocking .
 	sendBufferSize = 50
@@ -46,18 +46,41 @@ const(
 	//connectionRetryInterva is the amount of time to wait in between
 	//retries when automationcally reconnectiong to an RPc server.
 	connectionRetryInterval = time.Second * 5
-
 )
 
+//sendpostdetails hourse an http post request to send to an rpc server
+//as well as the original json-rpc command and a channel to reply on
+//when the server responds with the result.
+type sendPostDetails struct {
+	httpRequest *http.Request
+	jsonRequest *jsonRequest
+}
 
+//jsonrequest holds information about a json request that is used to
+//properly detect.interpret.and deliver a relay to it.
+type jsonRequest struct {
+	id             uint64
+	method         string
+	cmd            interface{}
+	marshalledJSON []byte
+	responseChan   chan *response
+}
 
+//backend version representst the version of the backend the client is current
+//connetcted to
+type BackendVersion uint8
 
+const (
+	// BitcoindPre19 represents a bitcoind version before 0.19.0.
+	BitcoindPre19 BackendVersion = iota
 
+	// BitcoindPost19 represents a bitcoind version equal to or greater than
+	// 0.19.0.
+	BitcoindPost19
 
-
-
-
-
+	// Btcd represents a catch-all btcd version.
+	Btcd
+)
 
 //client represents a bitclient Rpc client which allows easy access to the
 //various rpc methods available on a bitcoin rpc server .each of the wrapper
@@ -123,3 +146,37 @@ type Client struct {
 	wg              sync.WaitGroup
 }
 
+// NextID returns the next id to be used when sending a JSON-RPC message.  This
+// ID allows responses to be associated with particular requests per the
+// JSON-RPC specification.  Typically the consumer of the client does not need
+// to call this function, however, if a custom request is being created and used
+// this function should be used to ensure the ID is unique amongst all requests
+// being made.
+
+func (c *Client) NextID() uint64 {
+	return atomic.AddUint64(&c.id, 1)
+}
+
+//addrequest associates the passed jsonrequest with its id ,
+//this allows the response form the remote server to be unmarshalled
+//to the appropriate type and sent to the specified channel when it
+//received .
+//if the client has already begun shutting down,errclientshutdown is
+//is returned and the request is not added.
+//this function is safe for concurrent access.
+func (c *Client) addRequest(jReq *jsonRequest) error {
+	c.requestLock.Lock()
+	defer c.requestLock.Unlock()
+
+	select {
+	case <-c.shutdown:
+		return ErrClientShutdown
+	default:
+
+	}
+
+	element := c.requestList.PushBack(jReq)
+	c.requestMap[jReq.id] = element
+	return nil
+
+}
