@@ -180,3 +180,56 @@ func (c *Client) addRequest(jReq *jsonRequest) error {
 	return nil
 
 }
+
+//dremoverequest returns and remove the jsonreuqest which contains the resooponse
+//channel and origin methos associated with the passed id or nil if there is
+//no association .
+//this function is  safe for concurrent access.
+func (c *Client) removeRequest(id uint64) *jsonRequest	{
+	c.requestLock.Lock()
+	defer c.requestLock.Unlock()
+
+	element := c.requestMap[id]
+	if element != nil {
+		delete(c.requestMap,id)
+		request := c.requestList.Remove(element).(*jsonRequest)
+		return request
+	}
+	return nil
+}
+
+// removeAllRequests removes all the jsonRequests which contain the response
+// channels for outstanding requests.
+//
+// This function MUST be called with the request lock held.
+func (c *Client) removeAllRequests() {
+	c.requestMap = make(map[uint64]*list.Element)
+	c.requestList.Init()
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
