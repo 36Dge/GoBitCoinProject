@@ -3,6 +3,7 @@ package rpcclient
 import (
 	"BtcoinProject/chaincfg"
 	"container/list"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"sync"
@@ -185,13 +186,13 @@ func (c *Client) addRequest(jReq *jsonRequest) error {
 //channel and origin methos associated with the passed id or nil if there is
 //no association .
 //this function is  safe for concurrent access.
-func (c *Client) removeRequest(id uint64) *jsonRequest	{
+func (c *Client) removeRequest(id uint64) *jsonRequest {
 	c.requestLock.Lock()
 	defer c.requestLock.Unlock()
 
 	element := c.requestMap[id]
 	if element != nil {
-		delete(c.requestMap,id)
+		delete(c.requestMap, id)
 		request := c.requestList.Remove(element).(*jsonRequest)
 		return request
 	}
@@ -207,19 +208,102 @@ func (c *Client) removeAllRequests() {
 	c.requestList.Init()
 }
 
+//trackregiseredntfs examines the passed command to see if it is one of
+//the notificaiion commands and updated the notification state that is used
+//to automatically re_establish regisered notifications on reconnects.
+func (c *Client) trackRegisteredNtfns(cmd interface{}) {
+	//nothing to do if the caller is not interested in notifications
+	if c.ntfnHandlers == nil {
+		return
+	}
 
+	c.ntfnStateLock.Lock()
+	defer c.ntfnStateLock.Unlock()
 
+	switch bcmd := cmd.(type) {
+	case *btcjson.NotifyBlocksCmd:
+		c.ntfnState.notifyBlocks = true
 
+	case *btcjson.NotifyNewTrasnactionsCmd:
+		if bcmd.Verbose != nil && *bcmd.Verbose {
+			c.ntfnState.notifyNewTxVerbose = true
+		} else {
+			c.ntfnState.notifyNewTx = true
 
+		}
 
+	case *btcjson.NotifySpentCmd:
+		for _, op := range bcmd.OutPoints {
+			c.ntfnState.notifySpent[op] = struct{}{}
+		}
 
+	case *btcjson.NotifyReceivedCmd:
+		for _, addr := range bcmd.Addresses {
+			c.ntfnState.notifyReceived[addr] = struct{}{}
+		}
 
+	}
 
+}
 
+//inmessage is the fist type that an incoming message is unmarshalled
+//into ,it suport both requests(for notification support) and response.
+//the partially-unmarshalled message is a notification if the embeded id
+//from the response is nil ,otherwise.it is a response.
+type inMessage struct {
+	ID *float64 `json:"id"`
+	*rawNotification
+	*rawResponse
+}
 
+//rawnotification is a partially-ummarshaled json-rpc notificaton
+type rawNotification struct {
+	Method string            `json:"method"`
+	Params []json.RawMessage `json:"params"`
+}
 
+//rawresponse is  a partially-unmarshaled json -PRC resonse for this
+//to be valid (according to json-rpc 1.0 spec) id may not be nil
+type rawResponse struct {
+	Result json.RawMessage   `json:"result"`
+	Error  *btcjson.RPCError `json:"error"`
+}
 
+//response is the raw bytes of a json-rpc result,or the error if the response
+//error object was non-null
+type reponse struct {
+	result []byte
+	err    error
+}
 
+//result checks whether the ummarshaled response contains a non-nil error.
+//returing an ummarshaled btcjson.rpcerror (or an unmarhsling error)if so.
+//if the response is not an error the raw bytes of the request are returned
+//for further unmashing into specific result types.
+func (r rawResponse) result() (result []byte, err error) {
+	if r.Error != nil {
+		return nil, r.Error
+
+	}
+
+	return r.Result, err
+}
+
+//handlemessage is the main hanller for incoming notification and responses.
+func(c *Client) handleMessage(msg []byte){
+	//attempt to unmarshal the message as either a notification or resplnse.
+	var in inMessage
+	in.rawResponse = new(rawResponse)
+	in.rawNotification = new(rawNotification)
+	err := json.Unmarshal(msg,&in)
+	if err != nil {
+		log.Warnf("remote server sent invalid message:%v",err)
+		return
+	}
+
+	//json-rpc 1.0 notifications are requests with a unll id.
+
+}
 
 
 
