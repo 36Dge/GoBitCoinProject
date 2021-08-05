@@ -5,6 +5,7 @@ import (
 	"container/list"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -290,30 +291,70 @@ func (r rawResponse) result() (result []byte, err error) {
 }
 
 //handlemessage is the main hanller for incoming notification and responses.
-func(c *Client) handleMessage(msg []byte){
+func (c *Client) handleMessage(msg []byte) {
 	//attempt to unmarshal the message as either a notification or resplnse.
 	var in inMessage
 	in.rawResponse = new(rawResponse)
 	in.rawNotification = new(rawNotification)
-	err := json.Unmarshal(msg,&in)
+	err := json.Unmarshal(msg, &in)
 	if err != nil {
-		log.Warnf("remote server sent invalid message:%v",err)
+		log.Warnf("remote server sent invalid message:%v", err)
 		return
 	}
 
 	//json-rpc 1.0 notifications are requests with a unll id.
 
+	if in.ID == nil {
+		ntfn := in.rawNotification
+		if ntfn == nil {
+			log.Warn("malformed notification:missing" +
+				"method and parameters")
+			return
+		}
+		if ntfn.Method == "" {
+			log.Warn("malformed notification :missing method")
+			return
+		}
+
+		//params are not optional :nil isn,t valid (but len == 0is)
+		if ntfn.Params == nil {
+			log.Warn("malformed notification :missing params")
+			return
+		}
+
+		//deliver the notification
+		log.Tracef("receiver notificaton[%s]", in.Method)
+		c.handleNotification(in.rawNotification)
+		return
+	}
+
+	//ensure that in.id can be converted to an integer without loss of precisiosn
+	if *in.ID < 0 || *in.ID != math.Trunc(*in.ID) {
+		log.Warn("malformed response :invalid identifier")
+		return
+	}
+
+	if in.rawResponse == nil {
+		log.Warn("malformed response :missing result and error")
+		return
+	}
+
+	id := uint64(*in.ID)
+	log.Tracef("receiver response for id %d(result%s)", id, in.Result)
+
+	//nothing more to do if there is no request asssociated with this reply
+	if request == nil || request.responseChan == nil {
+		log.Warnf("receiver unexpected reply :%s(id %d)", in.Result, id)
+		return
+	}
+
+	//since the command was successful ,exaimine it to see if it is a
+	//notification and if it is ,add it to the notification state so it
+	//can automatically be re-established on reconnet.
+	c.trackRegisteredNtfns(request.cmd)
+
+	//deliver the response
+	result, err := in.rawResponse.result()
+	request.responseChan <- &response{result: result, err: err}
+
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
