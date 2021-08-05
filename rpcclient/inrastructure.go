@@ -5,7 +5,9 @@ import (
 	"container/list"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
+	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -358,3 +360,25 @@ func (c *Client) handleMessage(msg []byte) {
 	request.responseChan <- &response{result: result, err: err}
 
 }
+// shouldLogReadError returns whether or not the passed error, which is expected
+// to have come from reading from the websocket connection in wsInHandler,
+// should be logged.
+func (c *Client) shouldLogReadError(err error) bool {
+	// No logging when the connetion is being forcibly disconnected.
+	select {
+	case <-c.shutdown:
+		return false
+	default:
+	}
+
+	// No logging when the connection has been disconnected.
+	if err == io.EOF {
+		return false
+	}
+	if opErr, ok := err.(*net.OpError); ok && !opErr.Temporary() {
+		return false
+	}
+
+	return true
+}
+
