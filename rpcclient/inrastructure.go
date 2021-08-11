@@ -5,6 +5,7 @@ import (
 	"container/list"
 	"encoding/json"
 	"errors"
+	"github.com/btcsuite/websocket"
 	"io"
 	"math"
 	"net"
@@ -439,6 +440,55 @@ out:
 	c.Disconnect
 	c.wg.Done()
 	log.Tracef("RPC client input hanlder done for %s", c.config.Host)
+}
+
+
+// disconnectChan returns a copy of the current disconnect channel.  The channel
+// is read protected by the client mutex, and is safe to call while the channel
+// is being reassigned during a reconnect.
+func (c *Client) disconnectChan() <-chan struct{} {
+	c.mtx.Lock()
+	ch := c.disconnect
+	c.mtx.Unlock()
+	return ch
+}
+// wsOutHandler handles all outgoing messages for the websocket connection.  It
+// uses a buffered channel to serialize output messages while allowing the
+// sender to continue running asynchronously.  It must be run as a goroutine.
+func (c *Client) wsOutHandler(){
+	out :
+		for {
+			//send any message ready for send until the client is
+			//disconneted closed.
+			select {
+			case msg := <-c.sendChan:
+				err := c.wsConn.WriteMessage(websocket.TextMessage,msg)
+				if err != nil {
+					c.Disconnect()
+					break out
+
+				}
+				case <- c.disconnectChan():
+					break out
+
+			}
+		}
+
+
+		//drain any channels before existing so nothing is left waiting around
+		//to send .
+		cleanup:
+			for {
+				select {
+				case <-c.sendChan:
+				default:
+					break cleanup
+				}
+			}
+
+			c.wg.Done()
+	log.Tracef("RPC client output handler done for %s",c.config.Host)
+
 }
 
 
