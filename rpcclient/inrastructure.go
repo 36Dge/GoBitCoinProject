@@ -360,6 +360,7 @@ func (c *Client) handleMessage(msg []byte) {
 	request.responseChan <- &response{result: result, err: err}
 
 }
+
 // shouldLogReadError returns whether or not the passed error, which is expected
 // to have come from reading from the websocket connection in wsInHandler,
 // should be logged.
@@ -400,29 +401,45 @@ func (c *Client) shouldLogReadError(err error) bool {
 
 	}
 
-	if opErr,ok := err.(*net.OpError);ok && !opErr.Temporary() {
+	if opErr, ok := err.(*net.OpError); ok && !opErr.Temporary() {
 		return false
 
 	}
 	return true
 }
 
+//wsinhanlder handles all incoming messages for the websocket connection
+//associated with the client .it must be run as goroutinue.
+func (c *Client) wsInHandler() {
+out:
+	for {
+		//break out of the loop once the shutdown channel has been
+		//closed .use a non-blocking select here so we fall through
+		//otherwise.
+		select {
+		case <-c.shutdown
+			break out
+		default:
 
+		}
 
+		_, msg, err := c.wsConn.ReadMessage()
+		if err != nil {
+			//log the error if it is not due to disconnectiong .
+			if c.shouldLogReadError(err) {
+				log.Errorf("websocket receiver error from "+
+					"%s :%v", c.config.Host, err)
+			}
+			break out
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+		}
+		c.handleMessage(msg)
+	}
+	//ensure the connection is closed.
+	c.Disconnect
+	c.wg.Done()
+	log.Tracef("RPC client input hanlder done for %s", c.config.Host)
+}
 
 
 
