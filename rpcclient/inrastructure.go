@@ -382,3 +382,48 @@ func (c *Client) shouldLogReadError(err error) bool {
 	return true
 }
 
+//shouldlogreaderror returns whether or not the passed error ,wehich is
+//to have come form reading from the websocket conncetion in wsinhanlder
+//should be logged
+func (c *Client) shouldLogReadError(err error) bool {
+	//no logging when the connection is being forcibly disconnected
+	select {
+	case <-c.shutdown:
+		return false
+	default:
+
+	}
+
+	//no loggging when the connection has been disconneted.
+	if err == io.EOF {
+		return false
+
+	}
+
+	if opErr,ok := err.(*net.OpError);ok && !opErr.Temporary() {
+		return false
+
+	}
+	return true
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
