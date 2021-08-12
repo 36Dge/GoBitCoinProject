@@ -442,7 +442,6 @@ out:
 	log.Tracef("RPC client input hanlder done for %s", c.config.Host)
 }
 
-
 // disconnectChan returns a copy of the current disconnect channel.  The channel
 // is read protected by the client mutex, and is safe to call while the channel
 // is being reassigned during a reconnect.
@@ -452,44 +451,69 @@ func (c *Client) disconnectChan() <-chan struct{} {
 	c.mtx.Unlock()
 	return ch
 }
+
 // wsOutHandler handles all outgoing messages for the websocket connection.  It
 // uses a buffered channel to serialize output messages while allowing the
 // sender to continue running asynchronously.  It must be run as a goroutine.
-func (c *Client) wsOutHandler(){
-	out :
-		for {
-			//send any message ready for send until the client is
-			//disconneted closed.
-			select {
-			case msg := <-c.sendChan:
-				err := c.wsConn.WriteMessage(websocket.TextMessage,msg)
-				if err != nil {
-					c.Disconnect()
-					break out
-
-				}
-				case <- c.disconnectChan():
-					break out
+func (c *Client) wsOutHandler() {
+out:
+	for {
+		//send any message ready for send until the client is
+		//disconneted closed.
+		select {
+		case msg := <-c.sendChan:
+			err := c.wsConn.WriteMessage(websocket.TextMessage, msg)
+			if err != nil {
+				c.Disconnect()
+				break out
 
 			}
+		case <-c.disconnectChan():
+			break out
+
 		}
+	}
 
+	//drain any channels before existing so nothing is left waiting around
+	//to send .
+cleanup:
+	for {
+		select {
+		case <-c.sendChan:
+		default:
+			break cleanup
+		}
+	}
 
-		//drain any channels before existing so nothing is left waiting around
-		//to send .
-		cleanup:
-			for {
-				select {
-				case <-c.sendChan:
-				default:
-					break cleanup
-				}
-			}
-
-			c.wg.Done()
-	log.Tracef("RPC client output handler done for %s",c.config.Host)
+	c.wg.Done()
+	log.Tracef("RPC client output handler done for %s", c.config.Host)
 
 }
+
+//sendmessage sends the passed json to the connected server using the websocket
+//connection ,it is backed by a buffered channnel ,so it will not block until
+//the send channel is full.
+func (c *Client) sendMessage(marshalledJSON []byte) {
+	//don,t send the message if disconnectd.
+	select {
+	case c.sendChan <- marshalledJSON:
+	case <-c.disconnectChan():
+		return
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
