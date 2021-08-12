@@ -573,6 +573,33 @@ func (c *Client) reregisterNtfns() error{
 
 }
 
+//ignoreresends is a set of all methods for requests that are ""long running"
+//are not be reissued by the client on reconnct.
+var ignoreReseds = map[string]struct{} {
+	"rescan":{},
+}
+//resendrequests resend any requests that had not completed when the client
+//disconneted .it is intended to be called once the client has reconnected as
+//a seperate goroutinue.
+func (c *Client) resendRequests() {
+	//set the notification state back up ,if anything goes worong
+	//disconnect the client.
+	if err := c.reregisterNtfns();err != nil {
+		log.Warnf("unable to re-establish notification state :%v",err)
+		c.Disconnect()
+		return
+
+	}
+
+	// Since it's possible to block on send and more requests might be
+	// added by the caller while resending, make a copy of all of the
+	// requests that need to be resent now and work from the copy.  This
+	// also allows the lock to be released quickly.
+
+
+
+
+}
 
 
 
