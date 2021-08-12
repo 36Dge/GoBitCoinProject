@@ -501,6 +501,77 @@ func (c *Client) sendMessage(marshalledJSON []byte) {
 		return
 	}
 }
+//reregisterNfts creates and sends commands needed to re_establish the crrent
+//notification state associated with the client .it should only be called on
+//reconnect by the resendRequests function.
+func (c *Client) reregisterNtfns() error{
+	//nothing to do if the caller if not interested in notifications.
+	if c.ntfnHandlers == nil {
+		return nil
+	}
+
+	//in order to avoid holding the lock on the notification state for the
+	//entire time of the potentially long running RPCS issued below. make a
+	//copy of it and work from that .
+
+	//also.other commands will be running concurrently which could mofity
+	//the notification state (while not under the lock of course ) which
+	//also register it which the remote RPC server,so this prevents double
+	//registerations.
+	c.ntfnStateLock.Lock()
+	stateCopy := c.ntfnState.Copy()
+	c.ntfnStateLock.Unlock()
+
+	//reregisster notifyblocks if needed.
+	if stateCopy.notifyBlocks{
+		log.Debugf("reregistering [notifyblcoks]")
+		if err := c.notifyBlocks();err != nil{
+			return err
+		}
+	}
+
+	//reregister notifynewtransaction if needed .
+	if stateCopy.notifyNewTx || stateCopy.notifyNewTxVerbose {
+		log.Debugf("reregistering [notifynewtrnasactions](verbose+%v)",
+			stateCopy.notifyNewTxVerbose)
+		err := c.notifyNewTransactions(stateCopy.notifyNewTxVerbose)
+		if err != nil {
+			return err
+		}
+	}
+
+	//reregister the comfination of all pdreviouly registered nofityspent.
+	//outpoints in one command if needed.
+	nslen := len(stateCopy.notifySpent)
+	if nslen > 0 {
+		outpoints := make([]btcjson.OutPoint,0,nslen)
+		for op := range stateCopy.notifySpent{
+			outpoints = append(outpoints,op)
+		}
+
+		log.Debugf("Reregistering [notifyspent] outpoints: %v", outpoints)
+		if err := c.notifySpentInternal(outpoints).Receive(); err != nil {
+			return err
+		}
+	}
+	// Reregister the combination of all previously registered
+	// notifyreceived addresses in one command if needed.
+	nrlen := len(stateCopy.notifyReceived)
+	if nrlen > 0 {
+		addresses := make([]string, 0, nrlen)
+		for addr := range stateCopy.notifyReceived {
+			addresses = append(addresses, addr)
+		}
+		log.Debugf("Reregistering [notifyreceived] addresses: %v", addresses)
+		if err := c.notifyReceivedInternal(addresses).Receive(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+
+
+}
 
 
 
