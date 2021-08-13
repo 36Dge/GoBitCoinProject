@@ -501,10 +501,11 @@ func (c *Client) sendMessage(marshalledJSON []byte) {
 		return
 	}
 }
+
 //reregisterNfts creates and sends commands needed to re_establish the crrent
 //notification state associated with the client .it should only be called on
 //reconnect by the resendRequests function.
-func (c *Client) reregisterNtfns() error{
+func (c *Client) reregisterNtfns() error {
 	//nothing to do if the caller if not interested in notifications.
 	if c.ntfnHandlers == nil {
 		return nil
@@ -523,9 +524,9 @@ func (c *Client) reregisterNtfns() error{
 	c.ntfnStateLock.Unlock()
 
 	//reregisster notifyblocks if needed.
-	if stateCopy.notifyBlocks{
+	if stateCopy.notifyBlocks {
 		log.Debugf("reregistering [notifyblcoks]")
-		if err := c.notifyBlocks();err != nil{
+		if err := c.notifyBlocks(); err != nil {
 			return err
 		}
 	}
@@ -544,9 +545,9 @@ func (c *Client) reregisterNtfns() error{
 	//outpoints in one command if needed.
 	nslen := len(stateCopy.notifySpent)
 	if nslen > 0 {
-		outpoints := make([]btcjson.OutPoint,0,nslen)
-		for op := range stateCopy.notifySpent{
-			outpoints = append(outpoints,op)
+		outpoints := make([]btcjson.OutPoint, 0, nslen)
+		for op := range stateCopy.notifySpent {
+			outpoints = append(outpoints, op)
 		}
 
 		log.Debugf("Reregistering [notifyspent] outpoints: %v", outpoints)
@@ -570,22 +571,22 @@ func (c *Client) reregisterNtfns() error{
 
 	return nil
 
-
 }
 
 //ignoreresends is a set of all methods for requests that are ""long running"
 //are not be reissued by the client on reconnct.
-var ignoreReseds = map[string]struct{} {
-	"rescan":{},
+var ignoreReseds = map[string]struct{}{
+	"rescan": {},
 }
+
 //resendrequests resend any requests that had not completed when the client
 //disconneted .it is intended to be called once the client has reconnected as
 //a seperate goroutinue.
 func (c *Client) resendRequests() {
 	//set the notification state back up ,if anything goes worong
 	//disconnect the client.
-	if err := c.reregisterNtfns();err != nil {
-		log.Warnf("unable to re-establish notification state :%v",err)
+	if err := c.reregisterNtfns(); err != nil {
+		log.Warnf("unable to re-establish notification state :%v", err)
 		c.Disconnect()
 		return
 
@@ -596,23 +597,35 @@ func (c *Client) resendRequests() {
 	// requests that need to be resent now and work from the copy.  This
 	// also allows the lock to be released quickly.
 
+	c.requestLock.Lock()
+	resendReqs := make([]*jsonRequest, 0, c.requestList.Len())
+	var nextElem *list.Element
+	for e := c.requestList.Front(); e != nil; e = nextElem {
+		nextElem = e.Next()
 
+		jReq := e.Value.(*jsonRequest)
+		if _, ok := ignoreReseds[jReq.method]; ok {
+			//if a request is not on reconnet ,remove it form the request structure s ,since no repley
+			//is expected
+			delete(c.requestMap, jReq.id)
+			c.requestList.Remove(e)
+		} else {
+			resendReqs = append(resendReqs, jReq)
+		}
+	}
+	c.requestLock.Unlock()
 
+	for _, jReq := range resendReqs {
+
+		//stop resending cmmands if the client disconnected again
+		//since the next reconnect will handle them.
+		if c.Disconnected() {
+			return
+		}
+
+		log.Tracef("sneding command[%s] with id %d", jReq.method,
+			jReq.id)
+		c.sendMessage(jReq.marshalledJSON)
+	}
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
