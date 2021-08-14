@@ -629,3 +629,45 @@ func (c *Client) resendRequests() {
 	}
 
 }
+
+// wsReconnectHandler listens for client disconnects and automatically tries
+// to reconnect with retry interval that scales based on the number of retries.
+// It also resends any commands that had not completed when the client
+// disconnected so the disconnect/reconnect process is largely transparent to
+// the caller.  This function is not run when the DisableAutoReconnect config
+// options is set.
+//
+// This function must be run as a goroutine.
+
+func (c *Client) wsReconnectHandler() {
+	out:
+		for {
+			select {
+			case <-c.disconnect:
+				//on disconnect,fallthrough to reestalish the connection.
+				case <-c.shutdown:
+					break out
+
+			}
+		}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
