@@ -640,34 +640,68 @@ func (c *Client) resendRequests() {
 // This function must be run as a goroutine.
 
 func (c *Client) wsReconnectHandler() {
-	out:
+out:
+	for {
+		select {
+		case <-c.disconnect:
+		//on disconnect,fallthrough to reestalish the connection.
+		case <-c.shutdown:
+			break out
+		}
+
+	reconnect:
 		for {
 			select {
-			case <-c.disconnect:
-				//on disconnect,fallthrough to reestalish the connection.
-				case <-c.shutdown:
-					break out
-
+			case <-c.shutdown:
+				break out
+			default:
 			}
+
+			wsConn, err := dial(c.config)
+			if err != nil {
+				c.retryCount++
+				log.Infof("falied to connect to %s:%v", c.config.Host, err)
+
+				//scale the retry interral by the number of retries so there is a backoff
+				//up to a max of 1 minute.
+				scaledInterval := connectionRetryInterval.Nanoseconds() * c.retryCount
+				scaledDuration := time.Duration(scaledInterval)
+				if scaledDuration > time.Minute {
+					scaledDuration = time.Minute
+				}
+				log.Infof("retrying connection to %s  in "+
+					"%s", c.config.Host, scaledDuration)
+				time.Sleep(scaledDuration)
+				continue reconnect
+			}
+			log.Infof("reestalished connetion to RPC server %s", c.config.Host)
+
+			//reset the version in case the backend was disconnected dueto an update.
+			c.backendVersionMu.Lock()
+			c.backendVersion = nil
+			c.backendVersionMu.Unlock()
+
+			//reset the connection state and signal the reconnect has happened .
+			c.wsConn = wsConn
+			c.retryCount = 0
+
+			c.mtx.Lock()
+			c.disconnect = make(chan struct{})
+			c.disconnected = false
+			c.mtx.Unlock()
+
+			//start processing input and output for the new connection.
+			c.start()
+
+			//reissue pending request in another goroutine since the send can block
+			go c.resendRequests()
+
+			//break out of the reconnect loop back to wait for disconnect again
+			break reconnect
 		}
+
+	}
+	c.wg.Done()
+    log.Tracef("RPC client reconnect hanler done for s %",c.config.Host)
+
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
