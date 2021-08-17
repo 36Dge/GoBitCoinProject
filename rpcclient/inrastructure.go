@@ -710,6 +710,11 @@ cleanup:
 
 }
 
+// WaitForShutdown blocks until the client goroutines are stopped and the
+// connection is closed.
+func (c *Client) WaitForShutdown() {
+	c.wg.Wait()
+}
 
 
 //connconfig describes the connection configuration parameters for the client
