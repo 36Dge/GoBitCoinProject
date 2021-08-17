@@ -632,8 +632,6 @@ func (c *Client) resendRequests() {
 
 }
 
-
-
 // handleSendPostMessage handles performing the passed HTTP request, reading the
 // result, unmarshalling it, and delivering the unmarshalled result to the
 // provided response channel.
@@ -676,51 +674,114 @@ func (c *Client) handleSendPostMessage(details *sendPostDetails) {
 //in http POst mode .it uses a  buffered channel to serialize output message
 // while allowing the sender to continue running asynchorounouly.it must be run
 //as a gorouine.
-func(c *Client) sendPostHandler(){
-	out:
-		for  {
-			//send any messages ready for send until the shutdown channel
-			//is closed
-			select {
-				case details := <-c.sendPostChan:
-					c.handleSendPostMessage(details)
+func (c *Client) sendPostHandler() {
+out:
+	for {
+		//send any messages ready for send until the shutdown channel
+		//is closed
+		select {
+		case details := <-c.sendPostChan:
+			c.handleSendPostMessage(details)
 
 
-					case <-c.shutdown:
-						break out
-			}
+		case <-c.shutdown:
+			break out
 		}
+	}
 
-		//drain any wait channnels before exiting so nothing is left waiting
-		//around to send.
+	//drain any wait channnels before exiting so nothing is left waiting
+	//around to send.
 
-	cleanup:
-		for {
-			select {
-			case details := <=c.sendPostChan:
-				details.jsonRequest.responseChan <- &response{
-				result :nil,
-				err : ErrClientShutdown,
-				}
-			default:
-				break cleanup
+cleanup:
+	for {
+		select {
+		case details := <=c.sendPostChan:
+			details.jsonRequest.responseChan <- &response{
+				result: nil,
+				err:    ErrClientShutdown,
 			}
+		default:
+			break cleanup
 		}
+	}
 
-		c.wg.Done()
-	log.Tracef("RPC client send hanlder done for %s",c.config.Host)
-
-
-
-
-
-
-
-
-
-
+	c.wg.Done()
+	log.Tracef("RPC client send hanlder done for %s", c.config.Host)
 
 }
+
+
+
+//connconfig describes the connection configuration parameters for the client
+//this
+type ConnConfig struct {
+	// Host is the IP address and port of the RPC server you want to connect
+	// to.
+	Host string
+
+	// Endpoint is the websocket endpoint on the RPC server.  This is
+	// typically "ws".
+	Endpoint string
+
+	// User is the username to use to authenticate to the RPC server.
+	User string
+
+	// Pass is the passphrase to use to authenticate to the RPC server.
+	Pass string
+
+	// Params is the string representing the network that the server
+	// is running. If there is no parameter set in the config, then
+	// mainnet will be used by default.
+	Params string
+
+	// DisableTLS specifies whether transport layer security should be
+	// disabled.  It is recommended to always use TLS if the RPC server
+	// supports it as otherwise your username and password is sent across
+	// the wire in cleartext.
+	DisableTLS bool
+
+	// Certificates are the bytes for a PEM-encoded certificate chain used
+	// for the TLS connection.  It has no effect if the DisableTLS parameter
+	// is true.
+	Certificates []byte
+
+	// Proxy specifies to connect through a SOCKS 5 proxy server.  It may
+	// be an empty string if a proxy is not required.
+	Proxy string
+
+	// ProxyUser is an optional username to use for the proxy server if it
+	// requires authentication.  It has no effect if the Proxy parameter
+	// is not set.
+	ProxyUser string
+
+	// ProxyPass is an optional password to use for the proxy server if it
+	// requires authentication.  It has no effect if the Proxy parameter
+	// is not set.
+	ProxyPass string
+
+	// DisableAutoReconnect specifies the client should not automatically
+	// try to reconnect to the server when it has been disconnected.
+	DisableAutoReconnect bool
+
+	// DisableConnectOnNew specifies that a websocket client connection
+	// should not be tried when creating the client with New.  Instead, the
+	// client is created and returned unconnected, and Connect must be
+	// called manually.
+	DisableConnectOnNew bool
+
+	// HTTPPostMode instructs the client to run using multiple independent
+	// connections issuing HTTP POST requests instead of using the default
+	// of websockets.  Websockets are generally preferred as some of the
+	// features of the client such notifications only work with websockets,
+	// however, not all servers support the websocket extensions, so this
+	// flag can be set to true to use basic HTTP POST requests instead.
+	HTTPPostMode bool
+
+	// EnableBCInfoHacks is an option provided to enable compatibility hacks
+	// when connecting to blockchain.info RPC server
+	EnableBCInfoHacks bool
+}
+
 
 
 
@@ -756,15 +817,14 @@ func(c *Client) sendPostHandler(){
 // This function must be run as a goroutine.
 
 func (c *Client) wsReconnectHandler() {
-	out:
-		for {
-			select {
-			case <-c.disconnect:
-				//on disconnect,fallthrough to reestalish the connection.
-				case <-c.shutdown:
-					break out
+out:
+	for {
+		select {
+		case <-c.disconnect:
+		//on disconnect,fallthrough to reestalish the connection.
+		case <-c.shutdown:
+			break out
 
-			}
 		}
+	}
 }
-
