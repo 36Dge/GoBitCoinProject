@@ -672,6 +672,55 @@ func (c *Client) handleSendPostMessage(details *sendPostDetails) {
 	jReq.responseChan <- &response{result: res, err: err}
 }
 
+//sendposthanlder handler all outgoing messages when hte client is running
+//in http POst mode .it uses a  buffered channel to serialize output message
+// while allowing the sender to continue running asynchorounouly.it must be run
+//as a gorouine.
+func(c *Client) sendPostHandler(){
+	out:
+		for  {
+			//send any messages ready for send until the shutdown channel
+			//is closed
+			select {
+				case details := <-c.sendPostChan:
+					c.handleSendPostMessage(details)
+
+
+					case <-c.shutdown:
+						break out
+			}
+		}
+
+		//drain any wait channnels before exiting so nothing is left waiting
+		//around to send.
+
+	cleanup:
+		for {
+			select {
+			case details := <=c.sendPostChan:
+				details.jsonRequest.responseChan <- &response{
+				result :nil,
+				err : ErrClientShutdown,
+				}
+			default:
+				break cleanup
+			}
+		}
+
+		c.wg.Done()
+	log.Tracef("RPC client send hanlder done for %s",c.config.Host)
+
+
+
+
+
+
+
+
+
+
+
+}
 
 
 
