@@ -710,6 +710,45 @@ cleanup:
 
 }
 
+//sendpostrequest sends the passed http request to the Rpc sever using the
+//http client associated with the client it is backed by a buffered channnel
+//so it will not block until the send channel is full.
+func(c *Client)sendPostRequest(httpReq *http.Request,jReq *jsonRequest) {
+	//dont send the message if shutting dwon.
+	select {
+	case <-c.shutdown:
+		jReq.responseChan <-&reponse{result: nil,err :ErrClientShutdown}
+	default:
+
+	}
+	c.sendPostChan <- &sendPostDetails{
+		httpRequest: jReq,
+		jsonRequest: httpReq,
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // WaitForShutdown blocks until the client goroutines are stopped and the
 // connection is closed.
 func (c *Client) WaitForShutdown() {
