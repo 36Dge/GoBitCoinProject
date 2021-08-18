@@ -734,6 +734,17 @@ func newFutureError(err error) chan *reponse {
 }
 
 
+// receiveFuture receives from the passed futureResult channel to extract a
+// reply or any errors.  The examined errors include an error in the
+// futureResult and the error in the reply from the server.  This will block
+// until the result is available on the passed channel.
+func receiveFuture(f chan *response) ([]byte, error) {
+	// Wait for a response on the returned channel.
+	r := <-f
+	return r.result, r.err
+}
+
+
 
 
 
