@@ -727,6 +727,11 @@ func(c *Client)sendPostRequest(httpReq *http.Request,jReq *jsonRequest) {
 	}
 }
 
+func newFutureError(err error) chan *reponse {
+	responseChan := make(chan *reponse,1)
+	responseChan <- &response{err:err}
+	return responseChan
+}
 
 
 
