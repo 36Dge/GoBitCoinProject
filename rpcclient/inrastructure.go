@@ -772,6 +772,45 @@ func (c *Client) sendPost(jReq *jsonRequest) {
 	log.Tracef("sending command[%s]with id %d", jReq.method, jReq.id)
 	c.sendPostRequest(httpReq, jReq)
 }
+//sendrequest sends the passed json request to the associated server using
+//the provided respose channel for the reply.it handles both websocket and thup
+//post mode depending on the configuration of the client.
+func (c *Client) sendRequest(jReq *jsonRequest){
+	//choose which marshal and send function to use depending on whether
+	//the client running in http post mode or not.when runnning in http
+	//post mode .the command is issued via an http client otherwise .
+	//the command is issued via the asynchornous websoeck channel.
+	if c.config.HTTPPostMode {
+		c.sendPost(jReq)
+		return
+	}
+
+	//check whehter the websocket connection has never been established.
+	//in which case the handler goroutines are not running
+	select {
+	case <-c.connEstablished:
+	default:
+		jReq.responseChan <- &response{err : ErrClientNotConnected}
+		return
+	}
+
+	//add the request to the internal tracking map so the response from
+	//the remote server can be porperly detected and routed to the response
+	//channel then send the marshanlled request via the websocket
+	//connetion.
+	if err := c.addRequest(jReq);err != nil {
+		jReq.responseChan <- &response{err:err}
+		return
+	}
+
+	log.Tracef("Sending command [%s] with id %d",jReq.method,jReq.id)
+	c.sendMessage(jReq.marshalledJSON)
+
+}
+
+
+
+
 
 
 
