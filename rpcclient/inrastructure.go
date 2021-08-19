@@ -2,6 +2,7 @@ package rpcclient
 
 import (
 	"BtcoinProject/chaincfg"
+	"bytes"
 	"container/list"
 	"encoding/json"
 	"errors"
@@ -713,11 +714,11 @@ cleanup:
 //sendpostrequest sends the passed http request to the Rpc sever using the
 //http client associated with the client it is backed by a buffered channnel
 //so it will not block until the send channel is full.
-func(c *Client)sendPostRequest(httpReq *http.Request,jReq *jsonRequest) {
+func (c *Client) sendPostRequest(httpReq *http.Request, jReq *jsonRequest) {
 	//dont send the message if shutting dwon.
 	select {
 	case <-c.shutdown:
-		jReq.responseChan <-&reponse{result: nil,err :ErrClientShutdown}
+		jReq.responseChan <- &reponse{result: nil, err: ErrClientShutdown}
 	default:
 
 	}
@@ -728,11 +729,10 @@ func(c *Client)sendPostRequest(httpReq *http.Request,jReq *jsonRequest) {
 }
 
 func newFutureError(err error) chan *reponse {
-	responseChan := make(chan *reponse,1)
-	responseChan <- &response{err:err}
+	responseChan := make(chan *reponse, 1)
+	responseChan <- &response{err: err}
 	return responseChan
 }
-
 
 // receiveFuture receives from the passed futureResult channel to extract a
 // reply or any errors.  The examined errors include an error in the
@@ -744,13 +744,34 @@ func receiveFuture(f chan *response) ([]byte, error) {
 	return r.result, r.err
 }
 
+//sendpost sends the passed request to the server by issuing an http post
+//request using the provided response channel for the reply .typically a new
+//connection is opened and closed for each command when using this method.
+//however,the underlying http Client might coalesce multiple commnads
+//depending on several factors incluing the remote server configuration.
+func (c *Client) sendPost(jReq *jsonRequest) {
+	//generate a request to configed RPC sever.
+	protocol := "http"
+	if !c.config.DisableTLS {
+		protocol = "https"
+	}
+	url := protocol + "://" + c.config.Host
+	bodyReader := bytes.NewReader(jReq.marshalledJSON)
+	httpReq, err := http.NewRequest("POST", url, bodyReader)
+	if err != nil {
+		jReq.responseChan <- &response{result: nil, err: err}
+		return
+	}
 
+	httpReq.Close = true
+	httpReq.Header.Set("Content-type", "applcation/json")
 
+	//Configure basic access authorization.
+	httpReq.SetBasicAuth(c.config.User, c.config.Pass)
 
-
-
-
-
+	log.Tracef("sending command[%s]with id %d", jReq.method, jReq.id)
+	c.sendPostRequest(httpReq, jReq)
+}
 
 
 
@@ -770,7 +791,6 @@ func receiveFuture(f chan *response) ([]byte, error) {
 func (c *Client) WaitForShutdown() {
 	c.wg.Wait()
 }
-
 
 //connconfig describes the connection configuration parameters for the client
 //this
@@ -841,31 +861,6 @@ type ConnConfig struct {
 	// when connecting to blockchain.info RPC server
 	EnableBCInfoHacks bool
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // wsReconnectHandler listens for client disconnects and automatically tries
 // to reconnect with retry interval that scales based on the number of retries.
