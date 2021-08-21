@@ -888,7 +888,34 @@ func (c *Client) doShutdown() bool {
 	return true
 }
 
+// Disconnect disconnects the current websocket associated with the client.  The
+// connection will automatically be re-established unless the client was
+// created with the DisableAutoReconnect flag.
+//
+// This function has no effect when the client is running in HTTP POST mode.
+func (c *Client) Disconnect() {
+	// Nothing to do if already disconnected or running in HTTP POST mode.
+	if !c.doDisconnect() {
+		return
+	}
 
+	c.requestLock.Lock()
+	defer c.requestLock.Unlock()
+
+	// When operating without auto reconnect, send errors to any pending
+	// requests and shutdown the client.
+	if c.config.DisableAutoReconnect {
+		for e := c.requestList.Front(); e != nil; e = e.Next() {
+			req := e.Value.(*jsonRequest)
+			req.responseChan <- &response{
+				result: nil,
+				err:    ErrClientDisconnect,
+			}
+		}
+		c.removeAllRequests()
+		c.doShutdown()
+	}
+}
 
 // Shutdown shuts down the client by disconnecting any connections associated
 // with the client and, when automatic reconnect is enabled, preventing future
@@ -919,9 +946,6 @@ func (c *Client) Shutdown() {
 	c.doDisconnect()
 }
 
-
-
-
 //start begins processing input and output message.
 func (c *Client) start() {
 	log.Tracef("starting RPC client %s", c.config.Host)
@@ -946,16 +970,6 @@ func (c *Client) start() {
 	go c.wsInHandler()
 	go c.wsOutHandler()
 }
-
-
-
-
-
-
-
-
-
-
 
 // WaitForShutdown blocks until the client goroutines are stopped and the
 // connection is closed.
