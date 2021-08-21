@@ -888,6 +888,40 @@ func (c *Client) doShutdown() bool {
 	return true
 }
 
+
+
+// Shutdown shuts down the client by disconnecting any connections associated
+// with the client and, when automatic reconnect is enabled, preventing future
+// attempts to reconnect.  It also stops all goroutines.
+func (c *Client) Shutdown() {
+	// Do the shutdown under the request lock to prevent clients from
+	// adding new requests while the client shutdown process is initiated.
+	c.requestLock.Lock()
+	defer c.requestLock.Unlock()
+
+	// Ignore the shutdown request if the client is already in the process
+	// of shutting down or already shutdown.
+	if !c.doShutdown() {
+		return
+	}
+
+	// Send the ErrClientShutdown error to any pending requests.
+	for e := c.requestList.Front(); e != nil; e = e.Next() {
+		req := e.Value.(*jsonRequest)
+		req.responseChan <- &response{
+			result: nil,
+			err:    ErrClientShutdown,
+		}
+	}
+	c.removeAllRequests()
+
+	// Disconnect the client if needed.
+	c.doDisconnect()
+}
+
+
+
+
 //start begins processing input and output message.
 func (c *Client) start() {
 	log.Tracef("starting RPC client %s", c.config.Host)
