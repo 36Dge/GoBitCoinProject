@@ -381,7 +381,6 @@ func (c *Client) shouldLogReadError(err error) bool {
 	return true
 }
 
-
 //wsinhanlder handles all incoming messages for the websocket connection
 //associated with the client .it must be run as goroutinue.
 func (c *Client) wsInHandler() {
@@ -742,10 +741,11 @@ func (c *Client) sendPost(jReq *jsonRequest) {
 	log.Tracef("sending command[%s]with id %d", jReq.method, jReq.id)
 	c.sendPostRequest(httpReq, jReq)
 }
+
 //sendrequest sends the passed json request to the associated server using
 //the provided respose channel for the reply.it handles both websocket and thup
 //post mode depending on the configuration of the client.
-func (c *Client) sendRequest(jReq *jsonRequest){
+func (c *Client) sendRequest(jReq *jsonRequest) {
 	//choose which marshal and send function to use depending on whether
 	//the client running in http post mode or not.when runnning in http
 	//post mode .the command is issued via an http client otherwise .
@@ -760,7 +760,7 @@ func (c *Client) sendRequest(jReq *jsonRequest){
 	select {
 	case <-c.connEstablished:
 	default:
-		jReq.responseChan <- &response{err : ErrClientNotConnected}
+		jReq.responseChan <- &response{err: ErrClientNotConnected}
 		return
 	}
 
@@ -768,12 +768,12 @@ func (c *Client) sendRequest(jReq *jsonRequest){
 	//the remote server can be porperly detected and routed to the response
 	//channel then send the marshanlled request via the websocket
 	//connetion.
-	if err := c.addRequest(jReq);err != nil {
-		jReq.responseChan <- &response{err:err}
+	if err := c.addRequest(jReq); err != nil {
+		jReq.responseChan <- &response{err: err}
 		return
 	}
 
-	log.Tracef("Sending command [%s] with id %d",jReq.method,jReq.id)
+	log.Tracef("Sending command [%s] with id %d", jReq.method, jReq.id)
 	c.sendMessage(jReq.marshalledJSON)
 
 }
@@ -785,27 +785,26 @@ type response struct {
 	err    error
 }
 
-
 //sendCmd sends the passed command to the associated server and retuns a
 //response channel on which the reply will be delivered at some point in
 //in the future .it handles both websocket and http post mode depending on
 //the configuation of the client.
-func(c *Client)sendCmd(cmd interface{}) chan *response {
+func (c *Client) sendCmd(cmd interface{}) chan *response {
 	//get the method associated with the command
-	method ,err := btcjson.CmdMethod(cmd)
+	method, err := btcjson.CmdMethod(cmd)
 	if err != nil {
 		return newFutureError(err)
 	}
 
 	//marshal the command
 	id := c.NextID()
-	marshalledJSON ,err := btcjson.MarshalCmd(id,cmd)
+	marshalledJSON, err := btcjson.MarshalCmd(id, cmd)
 	if err != nil {
 		return newFutureError(err)
 	}
 
 	//generate the request and send it along with a channel to respond on.
-	responseChan := make(chan *response,1)
+	responseChan := make(chan *response, 1)
 	jReq := &jsonRequest{
 		id:             id,
 		method:         method,
@@ -818,7 +817,6 @@ func(c *Client)sendCmd(cmd interface{}) chan *response {
 	return responseChan
 
 }
-
 
 // sendCmdAndWait sends the passed command to the associated server, waits
 // for the reply, and returns the result from it.  It will return the error
@@ -848,8 +846,8 @@ func (c *Client) Disconnected() bool {
 //not needed or client is running in http post mode.
 
 //this function is safe for concurrent access.
-func(c *Client)doDisconnect() bool{
-	if c.config.EnableBCInfoHacks{
+func (c *Client) doDisconnect() bool {
+	if c.config.EnableBCInfoHacks {
 		return false
 	}
 
@@ -857,12 +855,12 @@ func(c *Client)doDisconnect() bool{
 	defer c.mtx.Unlock()
 
 	//nothing to do if already disconnectd .
-	if c.disconnected{
+	if c.disconnected {
 		return false
 	}
 
-	log.Tracef("disconnecting RPC client %s",c.config.Host)
-	close (c.disconnect)
+	log.Tracef("disconnecting RPC client %s", c.config.Host)
+	close(c.disconnect)
 	if c.wsConn != nil {
 		c.wsConn.Close()
 
@@ -875,29 +873,45 @@ func(c *Client)doDisconnect() bool{
 //doshutdown closes theshutdown channel adn logs theshutdown unless shutdown
 //is already in progeress in will returs false if the shutdown is not needed
 //this function is safe for concurretn access.
-func (c *Client)doShutdown() bool {
+func (c *Client) doShutdown() bool {
 	//ignore the shutdown request if the client is already in the process
 	//of shutting down or alredy shutdown.
 	select {
-		case <-c.shutdown:
-			return false
+	case <-c.shutdown:
+		return false
 	default:
 
 	}
 
-	log.Tracef("shutting down RPC client %s",c.config.Host)
+	log.Tracef("shutting down RPC client %s", c.config.Host)
 	close(c.shutdown)
 	return true
 }
 
+//start begins processing input and output message.
+func (c *Client) start() {
+	log.Tracef("starting RPC client %s", c.config.Host)
 
+	//start the I/O porcesing handlers depending on whether the client is
+	//in http post mode or thedefualt websocket mode.
+	if c.config.HTTPPostMode {
+		c.wg.Add(1)
+		go c.sendPostHandler()
+	} else {
+		c.wg.Add(3)
+		go func() {
+			if c.ntfnHandlers != nil {
+				if c.ntfnHandlers.OnClientConnected != nil {
+					c.ntfnHandlers.OnClientConnected()
+				}
 
-
-
-
-
-
-
+			}
+			c.wg.Done()
+		}()
+	}
+	go c.wsInHandler()
+	go c.wsOutHandler()
+}
 
 
 
