@@ -1,6 +1,7 @@
 package rpcclient
 
 import (
+	"BtcoinProject/btcjson"
 	"BtcoinProject/chaincfg"
 	"bytes"
 	"container/list"
@@ -276,13 +277,6 @@ type rawResponse struct {
 	Error  *btcjson.RPCError `json:"error"`
 }
 
-//response is the raw bytes of a json-rpc result,or the error if the response
-//error object was non-null
-type reponse struct {
-	result []byte
-	err    error
-}
-
 //result checks whether the ummarshaled response contains a non-nil error.
 //returing an ummarshaled btcjson.rpcerror (or an unmarhsling error)if so.
 //if the response is not an error the raw bytes of the request are returned
@@ -387,30 +381,6 @@ func (c *Client) shouldLogReadError(err error) bool {
 	return true
 }
 
-//shouldlogreaderror returns whether or not the passed error ,wehich is
-//to have come form reading from the websocket conncetion in wsinhanlder
-//should be logged
-func (c *Client) shouldLogReadError(err error) bool {
-	//no logging when the connection is being forcibly disconnected
-	select {
-	case <-c.shutdown:
-		return false
-	default:
-
-	}
-
-	//no loggging when the connection has been disconneted.
-	if err == io.EOF {
-		return false
-
-	}
-
-	if opErr, ok := err.(*net.OpError); ok && !opErr.Temporary() {
-		return false
-
-	}
-	return true
-}
 
 //wsinhanlder handles all incoming messages for the websocket connection
 //associated with the client .it must be run as goroutinue.
@@ -696,7 +666,7 @@ out:
 cleanup:
 	for {
 		select {
-		case details := <=c.sendPostChan:
+		case details := <-c.sendPostChan:
 			details.jsonRequest.responseChan <- &response{
 				result: nil,
 				err:    ErrClientShutdown,
@@ -718,7 +688,7 @@ func (c *Client) sendPostRequest(httpReq *http.Request, jReq *jsonRequest) {
 	//dont send the message if shutting dwon.
 	select {
 	case <-c.shutdown:
-		jReq.responseChan <- &reponse{result: nil, err: ErrClientShutdown}
+		jReq.responseChan <- &response{result: nil, err: ErrClientShutdown}
 	default:
 
 	}
@@ -728,8 +698,8 @@ func (c *Client) sendPostRequest(httpReq *http.Request, jReq *jsonRequest) {
 	}
 }
 
-func newFutureError(err error) chan *reponse {
-	responseChan := make(chan *reponse, 1)
+func newFutureError(err error) chan *response {
+	responseChan := make(chan *response, 1)
 	responseChan <- &response{err: err}
 	return responseChan
 }
@@ -807,6 +777,50 @@ func (c *Client) sendRequest(jReq *jsonRequest){
 	c.sendMessage(jReq.marshalledJSON)
 
 }
+
+// response is the raw bytes of a JSON-RPC result, or the error if the response
+// error object was non-null.
+type response struct {
+	result []byte
+	err    error
+}
+
+
+//sendCmd sends the passed command to the associated server and retuns a
+//response channel on which the reply will be delivered at some point in
+//in the future .it handles both websocket and http post mode depending on
+//the configuation of the client.
+func(c *Client)sendCmd(cmd interface{}) chan *response {
+	//get the method associated with the command
+	method ,err := btcjson.CmdMethod(cmd)
+	if err != nil {
+		return newFutureError(err)
+	}
+
+	//marshal the command
+	id := c.NextID()
+	marshalledJSON ,err := btcjson.MarshalCmd(id,cmd)
+	if err != nil {
+		return newFutureError(err)
+	}
+
+	//generate the request and send it along with a channel to respond on.
+	responseChan := make(chan *response,1)
+	jReq := &jsonRequest{
+		id:             id,
+		method:         method,
+		cmd:            cmd,
+		marshalledJSON: marshalledJSON,
+		responseChan:   responseChan,
+	}
+	c.sendRequest(jReq)
+
+	return responseChan
+
+}
+
+
+
 
 
 
