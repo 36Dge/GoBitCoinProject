@@ -820,13 +820,6 @@ func(c *Client)sendCmd(cmd interface{}) chan *response {
 }
 
 
-
-
-
-
-
-
-
 // sendCmdAndWait sends the passed command to the associated server, waits
 // for the reply, and returns the result from it.  It will return the error
 // field in the reply if there is one.
@@ -849,6 +842,38 @@ func (c *Client) Disconnected() bool {
 		return false
 	}
 }
+
+//dodisconnect disconnercts the websocket associated with client if it
+//has not already been disconnected .it will return fasle if the diconnect is
+//not needed or client is running in http post mode.
+
+//this function is safe for concurrent access.
+func(c *Client)doDisconnect() bool{
+	if c.config.EnableBCInfoHacks{
+		return false
+	}
+
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+
+	//nothing to do if already disconnectd .
+	if c.disconnected{
+		return false
+	}
+
+	log.Tracef("disconnecting RPC client %s",c.config.Host)
+	close (c.disconnect)
+	if c.wsConn != nil {
+		c.wsConn.Close()
+
+	}
+
+	c.disconnected = true
+	return true
+}
+
+
+
 
 
 
