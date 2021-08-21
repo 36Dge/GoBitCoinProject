@@ -872,6 +872,24 @@ func(c *Client)doDisconnect() bool{
 	return true
 }
 
+//doshutdown closes theshutdown channel adn logs theshutdown unless shutdown
+//is already in progeress in will returs false if the shutdown is not needed
+//this function is safe for concurretn access.
+func (c *Client)doShutdown() bool {
+	//ignore the shutdown request if the client is already in the process
+	//of shutting down or alredy shutdown.
+	select {
+		case <-c.shutdown:
+			return false
+	default:
+
+	}
+
+	log.Tracef("shutting down RPC client %s",c.config.Host)
+	close(c.shutdown)
+	return true
+}
+
 
 
 
