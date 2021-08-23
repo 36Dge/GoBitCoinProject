@@ -7,9 +7,11 @@ import (
 	"container/list"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/btcsuite/go-socks/socks"
 	"github.com/btcsuite/websocket"
 	"io"
 	"io/ioutil"
@@ -1081,6 +1083,95 @@ func newHTTPClient(config *ConnConfig) (*http.Client, error) {
 	}
 	return &client, nil
 }
+
+//dial opens a websocket connection using the passed connection confiuation
+//details.
+func dial(config *ConnConfig)(*websocket.Conn,error){
+	//setup TLS if not disabled.
+	var tlsConfig *tls.Config
+	var scheme = "ws"
+	if !config.DisableTLS{
+		tlsConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+		if len(config.Certificates)>0{
+			pool := x509.NewCertPool()
+			pool.AppendCertsFromPEM(config.Certificates)
+			tlsConfig.RootCAs = pool
+		}
+		scheme = "wss"
+	}
+
+
+	//create a websocket dialer that will be used to make the connection
+	//it is modified by the proxy setting below as needed.
+	dialer := websocket.Dialer{TLSClientConfig: tlsConfig}
+
+	//setup the proxy if one is configured.
+	if config.Proxy != ""{
+		proxy := &socks.Proxy{
+			Addr:         config.Proxy,
+			Username:     config.ProxyUser,
+			Password:     config.ProxyPass,
+
+		}
+		dialer.NetDial  = proxy.Dial
+	}
+
+	//the RPC server requires basic authorization ,so create a custom
+	//request header with the authorization header set.
+	login := config.User + ":" + config.Pass
+	auth := "Basic" + base64.StdEncoding.EncodeToString([]byte(login))
+	requestHeader := make(http.Header)
+	requestHeader.Add("Authorization",auth)
+
+
+	// Dial the connection.
+	url := fmt.Sprintf("%s://%s/%s", scheme, config.Host, config.Endpoint)
+	wsConn, resp, err := dialer.Dial(url, requestHeader)
+	if err != nil {
+		if err != websocket.ErrBadHandshake || resp == nil {
+			return nil, err
+		}
+
+		// Detect HTTP authentication error status codes.
+		if resp.StatusCode == http.StatusUnauthorized ||
+			resp.StatusCode == http.StatusForbidden {
+			return nil, ErrInvalidAuth
+		}
+
+		// The connection was authenticated and the status response was
+		// ok, but the websocket handshake still failed, so the endpoint
+		// is invalid in some way.
+		if resp.StatusCode == http.StatusOK {
+			return nil, ErrInvalidEndpoint
+		}
+
+		// Return the status text from the server if none of the special
+		// cases above apply.
+		return nil, errors.New(resp.Status)
+	}
+	return wsConn, nil
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // wsReconnectHandler listens for client disconnects and automatically tries
 // to reconnect with retry interval that scales based on the number of retries.
