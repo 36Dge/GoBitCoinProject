@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1156,6 +1157,36 @@ func dial(config *ConnConfig)(*websocket.Conn,error){
 
 }
 
+const (
+	// bitcoind19Str is the string representation of bitcoind v0.19.0.
+	bitcoind19Str = "0.19.0"
+
+	// bitcoindVersionPrefix specifies the prefix included in every bitcoind
+	// version exposed through GetNetworkInfo.
+	bitcoindVersionPrefix = "/Satoshi:"
+
+	// bitcoindVersionSuffix specifies the suffix included in every bitcoind
+	// version exposed through GetNetworkInfo.
+	bitcoindVersionSuffix = "/"
+)
+//parsebitcoindversion parse the bitcoind version from its string
+//representation.
+func parseBitcoindVersion(version string)BackendVersion{
+	//trim the version of its prefix and suffix to determine the
+	//approriate version number.
+	version = strings.TrimPrefix(
+		strings.TrimSuffix(version,bitcoindVersionSuffix),
+		bitcoindVersionPrefix,
+		)
+	switch  {
+
+	case version < bitcoind19Str:
+		return BitcoindPre19
+	default:
+		return BitcoindPost19
+	}
+
+}
 
 
 
