@@ -5,6 +5,8 @@ import (
 	"BtcoinProject/chaincfg"
 	"bytes"
 	"container/list"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1045,6 +1048,38 @@ type ConnConfig struct {
 	// EnableBCInfoHacks is an option provided to enable compatibility hacks
 	// when connecting to blockchain.info RPC server
 	EnableBCInfoHacks bool
+}
+
+//newhttpclient returns a new http client that is configured according to hte
+//proxy and TLS setting in the associated connection configuration.
+func newHTTPClient(config *ConnConfig) (*http.Client, error) {
+	//set porxy function if there is a porxy configured.
+	var proxyFunc func(*http.Request) (*url.URL, error)
+	if config.Proxy != "" {
+		proxyURL, err := url.Parse(config.Proxy)
+		if err != nil {
+			return nil, err
+		}
+		proxyFunc = http.ProxyURL(proxyURL)
+	}
+
+	//cofigure tls if needed
+	var tlsConfig *tls.Config
+	if !config.DisableTLS {
+		if len(config.Certificates) > 0 {
+			pool := x509.NewCertPool()
+			pool.AppendCertsFromPEM(config.Certificates)
+			tlsConfig = &tls.Config{RootCAs: pool}
+		}
+	}
+
+	client := http.Client{
+		Transport: &http.Transport{
+			Proxy:           proxyFunc,
+			TLSClientConfig: tlsConfig,
+		},
+	}
+	return &client, nil
 }
 
 // wsReconnectHandler listens for client disconnects and automatically tries
