@@ -1315,17 +1315,64 @@ func New(config *ConnConfig, ntfnHandlers *NotificationHandlers) (*Client, error
 
 }
 
+//connect establish the initial websocket connection .this is necesary a client
+//was created after setting the disableconnetingONnew field of the config struec
 
+// Up to tries number of connections (each after an increasing backoff) will
+// be tried if the connection can not be established.  The special value of 0
+// indicates an unlimited number of connection attempts.
+//
+// This method will error if the client is not configured for websockets, if the
+// connection has already been established, or if none of the connection
 
+func (c *Client) Connect(tries int) error {
 
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
 
+	if c.config.HTTPPostMode {
+		return ErrNotWebsocketClient
+	}
 
+	if c.wsConn != nil {
+		return ErrClientAlreadyConnected
+	}
 
+	//begin connection attempts ,increase the backoff after each failed.
+	//attimpt up to a maximu of one mintue.
+	var err error
+	var backoff time.Duration
+	for i := 0; tries == 0 || i < tries; i++ {
+		var wsConn *websocket.Conn
+		wsConn, err = dial(c.config)
+		if err != nil {
+			backoff = connectionRetryInterval * time.Duration(i+1)
+			if backoff > time.Minute {
+				backoff = time.Minute
+			}
+			time.Sleep(backoff)
+			continue
+		}
 
+		//conection was eatablished ,set the websocket connection
+		//member of the client and stat the goroutines necessary
+		//to run the client
+		log.Infof("establish connection to RPC server %s", c.config.Host)
+		c.wsConn = wsConn
+		close(c.connEstablished)
+		c.start()
+		if !c.config.DisableAutoReconnect {
+			c.wg.Add(1)
+			go c.wsReconnectHandler()
+		}
+		return nil
 
+	}
 
+	//all connection attempts failed ,so return the laste error.
+	return err
 
-
+}
 
 // wsReconnectHandler listens for client disconnects and automatically tries
 // to reconnect with retry interval that scales based on the number of retries.
@@ -1348,3 +1395,5 @@ out:
 		}
 	}
 }
+
+//over
