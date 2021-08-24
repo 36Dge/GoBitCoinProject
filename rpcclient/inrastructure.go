@@ -1087,15 +1087,15 @@ func newHTTPClient(config *ConnConfig) (*http.Client, error) {
 
 //dial opens a websocket connection using the passed connection confiuation
 //details.
-func dial(config *ConnConfig)(*websocket.Conn,error){
+func dial(config *ConnConfig) (*websocket.Conn, error) {
 	//setup TLS if not disabled.
 	var tlsConfig *tls.Config
 	var scheme = "ws"
-	if !config.DisableTLS{
+	if !config.DisableTLS {
 		tlsConfig = &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		}
-		if len(config.Certificates)>0{
+		if len(config.Certificates) > 0 {
 			pool := x509.NewCertPool()
 			pool.AppendCertsFromPEM(config.Certificates)
 			tlsConfig.RootCAs = pool
@@ -1103,20 +1103,18 @@ func dial(config *ConnConfig)(*websocket.Conn,error){
 		scheme = "wss"
 	}
 
-
 	//create a websocket dialer that will be used to make the connection
 	//it is modified by the proxy setting below as needed.
 	dialer := websocket.Dialer{TLSClientConfig: tlsConfig}
 
 	//setup the proxy if one is configured.
-	if config.Proxy != ""{
+	if config.Proxy != "" {
 		proxy := &socks.Proxy{
-			Addr:         config.Proxy,
-			Username:     config.ProxyUser,
-			Password:     config.ProxyPass,
-
+			Addr:     config.Proxy,
+			Username: config.ProxyUser,
+			Password: config.ProxyPass,
 		}
-		dialer.NetDial  = proxy.Dial
+		dialer.NetDial = proxy.Dial
 	}
 
 	//the RPC server requires basic authorization ,so create a custom
@@ -1124,8 +1122,7 @@ func dial(config *ConnConfig)(*websocket.Conn,error){
 	login := config.User + ":" + config.Pass
 	auth := "Basic" + base64.StdEncoding.EncodeToString([]byte(login))
 	requestHeader := make(http.Header)
-	requestHeader.Add("Authorization",auth)
-
+	requestHeader.Add("Authorization", auth)
 
 	// Dial the connection.
 	url := fmt.Sprintf("%s://%s/%s", scheme, config.Host, config.Endpoint)
@@ -1154,7 +1151,6 @@ func dial(config *ConnConfig)(*websocket.Conn,error){
 	}
 	return wsConn, nil
 
-
 }
 
 const (
@@ -1169,16 +1165,17 @@ const (
 	// version exposed through GetNetworkInfo.
 	bitcoindVersionSuffix = "/"
 )
+
 //parsebitcoindversion parse the bitcoind version from its string
 //representation.
-func parseBitcoindVersion(version string)BackendVersion{
+func parseBitcoindVersion(version string) BackendVersion {
 	//trim the version of its prefix and suffix to determine the
 	//approriate version number.
 	version = strings.TrimPrefix(
-		strings.TrimSuffix(version,bitcoindVersionSuffix),
+		strings.TrimSuffix(version, bitcoindVersionSuffix),
 		bitcoindVersionPrefix,
-		)
-	switch  {
+	)
+	switch {
 
 	case version < bitcoind19Str:
 		return BitcoindPre19
@@ -1187,7 +1184,6 @@ func parseBitcoindVersion(version string)BackendVersion{
 	}
 
 }
-
 
 // BackendVersion retrieves the version of the backend the client is currently
 // connected to.
@@ -1240,10 +1236,84 @@ func (c *Client) BackendVersion() (BackendVersion, error) {
 	return *c.backendVersion, nil
 }
 
+//new creates a new RPC client based on the provided connection
+//configrration details ,the notification hanlders parameter may be nil
+//if you are not interested in receiving notifications and will be
+//ignored if the configuation is set to run in http post mode.
+func New(config *ConnConfig, ntfnHandlers *NotificationHandlers) (*Client, error) {
 
+	var wsConn *websocket.Conn
+	var httpClient *http.Client
+	connEstablished := make(chan struct{})
 
+	var start bool
+	if config.HTTPPostMode {
+		ntfnHandlers = nil
+		start
 
+		var err error
+		httpClient, err = newHTTPClient(config)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if !config.DisableConnectOnNew {
+			var err error
+			wsConn, err = dial(config)
+			if err != nil {
+				return nil, err
+			}
+			start = true
+		}
 
+	}
+
+	client := &Client{
+		config:          config,
+		wsConn:          wsConn,
+		httpClient:      httpClient,
+		requestMap:      make(map[uint64]*list.Element),
+		requestList:     list.New(),
+		ntfnHandlers:    ntfnHandlers,
+		ntfnState:       newNotificationState(),
+		sendChan:        make(chan []byte, sendBufferSize),
+		sendPostChan:    make(chan *sendPostDetails, sendPostBufferSize),
+		connEstablished: connEstablished,
+		disconnect:      make(chan struct{}),
+		shutdown:        make(chan struct{}),
+	}
+
+	//difault network is mainnet ,no parameters are necessary but if miannet
+	//is specified it will be the param
+	switch config.Params {
+	case "":
+		fallthrough
+	case chaincfg.MainNetParams.Name:
+		client.chainParams = &chaincfg.MainNetParams
+	case chaincfg.TestNet3Params.Name:
+		client.chainParams = &chaincfg.TestNet3Params
+	case chaincfg.RegressionNetParams.Name:
+		client.chainParams = &chaincfg.RegressionNetParams
+	case chaincfg.SimNetParams.Name:
+		client.chainParams = &chaincfg.SimNetParams
+	default:
+		return nil, fmt.Errorf("rpcclient.New: Unknown chain %s", config.Params)
+
+	}
+
+	if start {
+		log.Infof("established connection to RPC server %s", config.Host)
+		close(connEstablished)
+		client.start()
+		if !client.config.HTTPPostMode && !client.config.DisableAutoReconnect {
+			client.wg.Add(1)
+			go client.wsReconnectHandler()
+		}
+	}
+
+	return client, nil
+
+}
 
 
 
