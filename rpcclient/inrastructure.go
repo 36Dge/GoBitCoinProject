@@ -396,7 +396,7 @@ out:
 		//closed .use a non-blocking select here so we fall through
 		//otherwise.
 		select {
-		case <-c.shutdown
+		case <-c.shutdown:
 			break out
 		default:
 
