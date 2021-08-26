@@ -80,6 +80,22 @@ func (r FutureGetBlockResult) Receive() (*wire.MsgBlock,error){
 	return &msgBlock,nil
 }
 
+// GetBlockAsync returns an instance of a type that can be used to get the
+// result of the RPC at some future time by invoking the Receive function on the
+// returned instance.
+//
+// See GetBlock for the blocking version and more details.
+func (c *Client) GetBlockAsync(blockHash *chainhash.Hash) FutureGetBlockResult {
+	hash := ""
+	if blockHash != nil {
+		hash = blockHash.String()
+	}
+
+	cmd := btcjson.NewGetBlockCmd(hash, nil)
+	return c.sendCmd(cmd)
+}
+
+
 
 
 
