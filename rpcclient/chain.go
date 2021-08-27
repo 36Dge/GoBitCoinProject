@@ -1,6 +1,7 @@
 package rpcclient
 
 import (
+	"BtcoinProject/btcjson"
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
 	"bytes"
@@ -95,6 +96,30 @@ func (c *Client) GetBlockAsync(blockHash *chainhash.Hash) FutureGetBlockResult {
 	return c.sendCmd(cmd)
 }
 
+// GetBlock returns a raw block from the server given its hash.
+//
+// See GetBlockVerbose to retrieve a data structure with information about the
+// block instead.
+func (c *Client) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
+	return c.GetBlockAsync(blockHash).Receive()
+}
+
+// FutureGetBlockVerboseResult is a future promise to deliver the result of a
+// GetBlockVerboseAsync RPC invocation (or an applicable error).
+type FutureGetBlockVerboseResult chan *response
+
+
+//receive waits for the response pormised by the future and reutrns the data
+//structre form the server with information about the request block
+func(r FutureGetBlockVerboseResult) Receive()(*btcjson.GetBlockVerboseResult,error){
+	res,err := receiveFuture(r)
+	if err != nil {
+		return nil,err
+	}
+
+	//unmarshall the raw result into a blockResult
+	var blockResult btcjson
+}
 
 
 
