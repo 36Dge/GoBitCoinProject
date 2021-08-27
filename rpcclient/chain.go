@@ -182,6 +182,50 @@ func(c *Client)GetBlockVerboseTxAsync(blockHash *chainhash.Hash) FutureGetBlockV
 	return c.sendCmd(cmd)
 }
 
+// GetBlockVerboseTx returns a data structure from the server with information
+// about a block and its transactions given its hash.
+//
+// See GetBlockVerbose if only transaction hashes are preferred.
+// See GetBlock to retrieve a raw block instead.
+func (c *Client) GetBlockVerboseTx(blockHash *chainhash.Hash) (*btcjson.GetBlockVerboseTxResult, error) {
+	return c.GetBlockVerboseTxAsync(blockHash).Receive()
+}
+
+// FutureGetBlockCountResult is a future promise to deliver the result of a
+// GetBlockCountAsync RPC invocation (or an applicable error).
+type FutureGetBlockCountResult chan *response
+
+//receive waits for the response pormised by the future and reutns the number
+//of blocks in the longest block chain.
+func(r FutureGetBlockCountResult)Receive()(int64 ,error){
+	res,err := receiveFuture(r)
+	if err != nil {
+		return 0,err
+	}
+
+	//unmarshall the reuslt as an int64
+	var count int64
+	err = json.Unmarshal(res,&count)
+	if err != nil {
+		return 0,err
+	}
+	return count,nil
+}
+
+// result of the RPC at some future time by invoking the Receive function on the
+// returned instance.
+//
+// See GetBlockCount for the blocking version and more details.
+func (c *Client) GetBlockCountAsync() FutureGetBlockCountResult {
+	cmd := btcjson.NewGetBlockCountCmd()
+	return c.sendCmd(cmd)
+}
+
+// GetBlockCount returns the number of blocks in the longest block chain.
+func (c *Client) GetBlockCount() (int64, error) {
+	return c.GetBlockCountAsync().Receive()
+}
+
 
 
 
