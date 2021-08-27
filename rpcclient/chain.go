@@ -118,8 +118,19 @@ func(r FutureGetBlockVerboseResult) Receive()(*btcjson.GetBlockVerboseResult,err
 	}
 
 	//unmarshall the raw result into a blockResult
-	var blockResult btcjson
+	var blockResult btcjson.GetBlockVerboseResult
+	err = json.Unmarshal(res,&blockResult)
+	if err != nil {
+		return nil ,err
+	}
+
+	return &blockResult,nil
 }
+
+
+
+
+
 
 
 
