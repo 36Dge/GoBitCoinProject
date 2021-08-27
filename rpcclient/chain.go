@@ -170,7 +170,17 @@ func (r FutureGetBlockVerboseTxResult) Receive() (*btcjson.GetBlockVerboseTxResu
 //getblockverbosetxAsync returns an instance of a type can be used to get
 //the result of the rpc at some future time by invoking the receive function
 //on the reutrned instance.
-func(c *Client)GetBlockVerboseTxAsync(blockHash *chainhash.Hash)
+func(c *Client)GetBlockVerboseTxAsync(blockHash *chainhash.Hash) FutureGetBlockVerboseTxResult{
+	hash := ""
+	if blockHash != nil {
+		hash = blockHash.String()
+	}
+	//from the bitcoin_cli gerblock documentation:
+	//if verbosity is 2 ,rueturns an object with information about ....
+	cmd := btcjson.NewGetBlockCmd(hash, btcjson.Int(2))
+
+	return c.sendCmd(cmd)
+}
 
 
 
