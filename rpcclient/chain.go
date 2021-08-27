@@ -226,6 +226,22 @@ func (c *Client) GetBlockCount() (int64, error) {
 	return c.GetBlockCountAsync().Receive()
 }
 
+type FutureGetDifficultyResult chan *response
+
+func(r FutureGetDifficultyResult)Receive()(float64,error){
+	res,err := receiveFuture(r)
+	if err != nil {
+		return 0,err
+	}
+
+	//unmarshal the result as a float64
+	var difficulty float64
+	err = json.Unmarshal(res,&difficulty)
+	if err != nil {
+		return 0,err
+	}
+	return difficulty,nil
+}
 
 
 
