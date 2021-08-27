@@ -42,3 +42,28 @@ type GetBlockVerboseResult struct {
 	PreviousHash  string        `json:"previousblockhash"`
 	NextHash      string        `json:"nextblockhash,omitempty"`
 }
+
+// GetBlockVerboseTxResult models the data from the getblock command when the
+// verbose flag is set to 2.  When the verbose flag is set to 0, getblock returns a
+// hex-encoded string. When the verbose flag is set to 1, getblock returns an object
+// whose tx field is an array of transaction hashes. When the verbose flag is set to 2,
+// getblock returns an object whose tx field is an array of raw transactions.
+// Use GetBlockVerboseResult to unmarshal data received from passing verbose=1 to getblock.
+type GetBlockVerboseTxResult struct {
+	Hash          string        `json:"hash"`
+	Confirmations int64         `json:"confirmations"`
+	StrippedSize  int32         `json:"strippedsize"`
+	Size          int32         `json:"size"`
+	Weight        int32         `json:"weight"`
+	Height        int64         `json:"height"`
+	Version       int32         `json:"version"`
+	VersionHex    string        `json:"versionHex"`
+	MerkleRoot    string        `json:"merkleroot"`
+	Tx            []TxRawResult `json:"tx,omitempty"`
+	Time          int64         `json:"time"`
+	Nonce         uint32        `json:"nonce"`
+	Bits          string        `json:"bits"`
+	Difficulty    float64       `json:"difficulty"`
+	PreviousHash  string        `json:"previousblockhash"`
+	NextHash      string        `json:"nextblockhash,omitempty"`
+}
