@@ -59,6 +59,40 @@ func (c *Client) CreateEncryptedWalletAsync(passphrase string) FutureCreateEncry
 	return c.sendCmd(cmd)
 }
 
+// CreateEncryptedWallet requests the creation of an encrypted wallet.  Wallets
+// managed by btcwallet are only written to disk with encrypted private keys,
+// and generating wallets on the fly is impossible as it requires user input for
+// the encryption passphrase.  This RPC specifies the passphrase and instructs
+// the wallet creation.  This may error if a wallet is already opened, or the
+// new wallet cannot be written to disk.
+//
+// NOTE: This is a btcwallet extension.
+func (c *Client) CreateEncryptedWallet(passphrase string) error {
+	return c.CreateEncryptedWalletAsync(passphrase).Receive()
+}
+
+//futurelistaddrsstransactionresult is a future promise to deliver the result
+//of a listaddresstrnasactionasync rpc invocation(or an applicable error)
+type FutureListAddressTransactionResult chan *response
+
+//recive waits for the response promised by the future and retusn information
+//about all trnasaction associated with the provided addresses.
+func(r FutureListAddressTransactionResult)Receive()([]btcjson.ListTransactionsResult,error){
+	res,err := receiveFuture(r)
+	if err != nil {
+		return nil,err
+	}
+
+	//unmarshal the result as an array of listtransaction objects.
+	var transactions []btcjson.ListTransactionsResult
+	err = json.Unmarshal(res,&transactions)
+	if err != nil {
+		return nil,err
+	}
+
+	return transactions,nil
+}
+
 
 
 
