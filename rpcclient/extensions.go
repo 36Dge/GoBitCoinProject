@@ -37,6 +37,30 @@ func(c *Client) DebugLevelAsync(levelSpec string)FutureDebugLevelResult{
 }
 
 
+// FutureCreateEncryptedWalletResult is a future promise to deliver the error
+// result of a CreateEncryptedWalletAsync RPC invocation.
+type FutureCreateEncryptedWalletResult chan *response
+
+// Receive waits for and returns the error response promised by the future.
+func (r FutureCreateEncryptedWalletResult) Receive() error {
+	_, err := receiveFuture(r)
+	return err
+}
+
+// CreateEncryptedWalletAsync returns an instance of a type that can be used to
+// get the result of the RPC at some future time by invoking the Receive
+// function on the returned instance.
+//
+// See CreateEncryptedWallet for the blocking version and more details.
+//
+// NOTE: This is a btcwallet extension.
+func (c *Client) CreateEncryptedWalletAsync(passphrase string) FutureCreateEncryptedWalletResult {
+	cmd := btcjson.NewCreateEncryptedWalletCmd(passphrase)
+	return c.sendCmd(cmd)
+}
+
+
+
 
 
 
