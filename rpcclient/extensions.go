@@ -1,6 +1,7 @@
 package rpcclient
 
 import (
+	"BtcoinProject/chaincfg/chainhash"
 	"encoding/json"
 	"github.com/btcsuite/btcutil"
 )
@@ -109,6 +110,33 @@ func(c *Client)ListAddressTransactionsAsync(address []btcutil.Address,account st
 
 }
 
+//futuregetbestblockresult is  a future promise to deliver the result of a
+//getbestblockasync rpc invoaction (or an application error)
+type FutureGetBestBlockResult chan *response
+
+//receive wait for the respose promised by the future and returns the hash
+//and height of the block in the logest(best)chain.
+func(r FutureGetBestBlockResult) Receive()(*chainhash.Hash,int32,error){
+	res,err := receiveFuture(r)
+	if err != nil {
+		return nil,0,err
+	}
+
+	//unmarshal result as a getbestblock result object
+	var bestBlock btcjson.GetBestBlockResult
+	err = json.Unmarshal(res,&bestBlock)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	//convert to hash from string
+	hash ,err := chainhash.NewHashFromStr(bestBlock.Hash)
+	if err != nil {
+		return nil,0,err
+	}
+	return hash,bestBlock.Height,nil
+
+}
 
 
 
