@@ -1,6 +1,9 @@
 package rpcclient
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"github.com/btcsuite/btcutil"
+)
 
 //futuredebuglevel is a future promised to deliver the result of a
 //debuglevelasync PRC invocation (or an application error)
@@ -91,6 +94,19 @@ func(r FutureListAddressTransactionResult)Receive()([]btcjson.ListTransactionsRe
 	}
 
 	return transactions,nil
+}
+
+func(c *Client)ListAddressTransactionsAsync(address []btcutil.Address,account string) FutureListAddressTransactionResult{
+
+	//convert address to strings.
+	addrs := make([]string,0,len(address))
+	for _,addr := range address{
+		addrs = append(addrs,addr.EncodeAddress())
+
+	}
+	cmd := btcjson.NewListAddressTransactionsCmd(addrs, &account)
+	return c.sendCmd(cmd)
+
 }
 
 
