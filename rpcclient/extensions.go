@@ -2,6 +2,7 @@ package rpcclient
 
 import (
 	"BtcoinProject/chaincfg/chainhash"
+	"BtcoinProject/wire"
 	"encoding/json"
 	"github.com/btcsuite/btcutil"
 )
@@ -137,6 +138,50 @@ func(r FutureGetBestBlockResult) Receive()(*chainhash.Hash,int32,error){
 	return hash,bestBlock.Height,nil
 
 }
+
+// GetBestBlockAsync returns an instance of a type that can be used to get the
+// result of the RPC at some future time by invoking the Receive function on the
+// returned instance.
+//
+// See GetBestBlock for the blocking version and more details.
+//
+// NOTE: This is a btcd extension.
+func (c *Client) GetBestBlockAsync() FutureGetBestBlockResult {
+	cmd := btcjson.NewGetBestBlockCmd()
+	return c.sendCmd(cmd)
+}
+
+// GetBestBlock returns the hash and height of the block in the longest (best)
+// chain.
+//
+// NOTE: This is a btcd extension.
+func (c *Client) GetBestBlock() (*chainhash.Hash, int32, error) {
+	return c.GetBestBlockAsync().Receive()
+}
+
+// FutureGetCurrentNetResult is a future promise to deliver the result of a
+// GetCurrentNetAsync RPC invocation (or an applicable error).
+type FutureGetCurrentNetResult chan *response
+
+// Receive waits for the response promised by the future and returns the network
+// the server is running on.
+func (r FutureGetCurrentNetResult) Receive() (wire.BitcoinNet, error) {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return 0, err
+	}
+
+	// Unmarshal result as an int64.
+	var net int64
+	err = json.Unmarshal(res, &net)
+	if err != nil {
+		return 0, err
+	}
+
+	return wire.BitcoinNet(net), nil
+}
+
+
 
 
 
