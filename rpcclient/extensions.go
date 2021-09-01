@@ -181,6 +181,17 @@ func (r FutureGetCurrentNetResult) Receive() (wire.BitcoinNet, error) {
 	return wire.BitcoinNet(net), nil
 }
 
+func (c *Client) GetCurrentNetAsync() FutureGetCurrentNetResult {
+	cmd := btcjson.NewGetCurrentNetCmd()
+	return c.sendCmd(cmd)
+}
+
+// GetCurrentNet returns the network the server is running on.
+//
+// NOTE: This is a btcd extension.
+func (c *Client) GetCurrentNet() (wire.BitcoinNet, error) {
+	return c.GetCurrentNetAsync().Receive()
+}
 
 
 
