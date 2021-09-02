@@ -3,6 +3,8 @@ package rpcclient
 import (
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
+	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"github.com/btcsuite/btcutil"
 )
@@ -191,6 +193,41 @@ func (c *Client) GetCurrentNetAsync() FutureGetCurrentNetResult {
 // NOTE: This is a btcd extension.
 func (c *Client) GetCurrentNet() (wire.BitcoinNet, error) {
 	return c.GetCurrentNetAsync().Receive()
+}
+
+type FutureGetHeadersResult chan *response
+
+// Receive waits for the response promised by the future and returns the
+// getheaders result.
+//
+// NOTE: This is a btcsuite extension ported from
+// github.com/decred/dcrrpcclient.
+func (r FutureGetHeadersResult) Receive() ([]wire.BlockHeader, error) {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unmarshal result as a slice of strings.
+	var result []string
+	err = json.Unmarshal(res, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	// Deserialize the []string into []wire.BlockHeader.
+	headers := make([]wire.BlockHeader, len(result))
+	for i, headerHex := range result {
+		serialized, err := hex.DecodeString(headerHex)
+		if err != nil {
+			return nil, err
+		}
+		err = headers[i].Deserialize(bytes.NewReader(serialized))
+		if err != nil {
+			return nil, err
+		}
+	}
+	return headers, nil
 }
 
 
