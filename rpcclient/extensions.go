@@ -230,6 +230,25 @@ func (r FutureGetHeadersResult) Receive() ([]wire.BlockHeader, error) {
 	return headers, nil
 }
 
+//getheaderasnync returns a instance of a type that be used toget /
+//the rusult of the Rpc at some future time by invoking the receiver fucntion
+//on the returned instance
+func(c *Client) GetHeadersAsync(blockLocators []chainhash.Hash,hashStop *chainhash.Hash) FutureGetBlockResult {
+	locators := make([]string ,len(blockLocators))
+	for i := range blockLocators{
+		locators[i] = blockLocators[i].String()
+
+	}
+
+	hash := ""
+	if hashStop != nil {
+		hash = hashStop.String()
+
+	}
+	cmd  := btcjson.NewGetHeadersCmd(locators,hash)
+	return c.sendCmd(cmd)
+}
+
 
 
 
