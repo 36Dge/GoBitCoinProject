@@ -249,6 +249,16 @@ func(c *Client) GetHeadersAsync(blockLocators []chainhash.Hash,hashStop *chainha
 	return c.sendCmd(cmd)
 }
 
+// GetHeaders mimics the wire protocol getheaders and headers messages by
+// returning all headers on the main chain after the first known block in the
+// locators, up until a block hash matches hashStop.
+//
+// NOTE: This is a btcsuite extension ported from
+// github.com/decred/dcrrpcclient.
+func (c *Client) GetHeaders(blockLocators []chainhash.Hash, hashStop *chainhash.Hash) ([]wire.BlockHeader, error) {
+	return c.GetHeadersAsync(blockLocators, hashStop).Receive()
+}
+
 
 
 
