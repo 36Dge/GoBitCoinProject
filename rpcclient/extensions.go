@@ -4,8 +4,10 @@ import (
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
 	"bytes"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"github.com/btcsuite/btcutil"
 )
 
@@ -16,33 +18,31 @@ type FutureDebugLevelResult chan *response
 //receive waits for the response promised by the future and returns the result
 //of setting the debug logging level to the passed level specification or the
 //list of the available subsystems for the special keyword "show"
-func(r FutureDebugLevelResult) Receive()(string,error){
-	res,err := receiveFuture(r)
+func (r FutureDebugLevelResult) Receive() (string, error) {
+	res, err := receiveFuture(r)
 	if err != nil {
-		return "",err
+		return "", err
 	}
 
 	//unmashall the result as a string
 	var result string
-	err = json.Unmarshal(res,&result)
+	err = json.Unmarshal(res, &result)
 	if err != nil {
-		return "",err
+		return "", err
 	}
 
-	return result,nil
+	return result, nil
 }
 
 //debuglevelasync returns an instance of a type that can be used to get the
 //result of the RPC at some future time by invoking the receive fucntion on
 //the returned instance .
 
-
 //see Debuglevel for the blocking version and more details.
-func(c *Client) DebugLevelAsync(levelSpec string)FutureDebugLevelResult{
+func (c *Client) DebugLevelAsync(levelSpec string) FutureDebugLevelResult {
 	cmd := btcjson.NewDebugLevelCmd(levelSpec)
 	return c.sendCmd(cmd)
 }
-
 
 // FutureCreateEncryptedWalletResult is a future promise to deliver the error
 // result of a CreateEncryptedWalletAsync RPC invocation.
@@ -84,28 +84,28 @@ type FutureListAddressTransactionResult chan *response
 
 //recive waits for the response promised by the future and retusn information
 //about all trnasaction associated with the provided addresses.
-func(r FutureListAddressTransactionResult)Receive()([]btcjson.ListTransactionsResult,error){
-	res,err := receiveFuture(r)
+func (r FutureListAddressTransactionResult) Receive() ([]btcjson.ListTransactionsResult, error) {
+	res, err := receiveFuture(r)
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
 
 	//unmarshal the result as an array of listtransaction objects.
 	var transactions []btcjson.ListTransactionsResult
-	err = json.Unmarshal(res,&transactions)
+	err = json.Unmarshal(res, &transactions)
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
 
-	return transactions,nil
+	return transactions, nil
 }
 
-func(c *Client)ListAddressTransactionsAsync(address []btcutil.Address,account string) FutureListAddressTransactionResult{
+func (c *Client) ListAddressTransactionsAsync(address []btcutil.Address, account string) FutureListAddressTransactionResult {
 
 	//convert address to strings.
-	addrs := make([]string,0,len(address))
-	for _,addr := range address{
-		addrs = append(addrs,addr.EncodeAddress())
+	addrs := make([]string, 0, len(address))
+	for _, addr := range address {
+		addrs = append(addrs, addr.EncodeAddress())
 
 	}
 	cmd := btcjson.NewListAddressTransactionsCmd(addrs, &account)
@@ -119,25 +119,25 @@ type FutureGetBestBlockResult chan *response
 
 //receive wait for the respose promised by the future and returns the hash
 //and height of the block in the logest(best)chain.
-func(r FutureGetBestBlockResult) Receive()(*chainhash.Hash,int32,error){
-	res,err := receiveFuture(r)
+func (r FutureGetBestBlockResult) Receive() (*chainhash.Hash, int32, error) {
+	res, err := receiveFuture(r)
 	if err != nil {
-		return nil,0,err
+		return nil, 0, err
 	}
 
 	//unmarshal result as a getbestblock result object
 	var bestBlock btcjson.GetBestBlockResult
-	err = json.Unmarshal(res,&bestBlock)
+	err = json.Unmarshal(res, &bestBlock)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	//convert to hash from string
-	hash ,err := chainhash.NewHashFromStr(bestBlock.Hash)
+	hash, err := chainhash.NewHashFromStr(bestBlock.Hash)
 	if err != nil {
-		return nil,0,err
+		return nil, 0, err
 	}
-	return hash,bestBlock.Height,nil
+	return hash, bestBlock.Height, nil
 
 }
 
@@ -233,9 +233,9 @@ func (r FutureGetHeadersResult) Receive() ([]wire.BlockHeader, error) {
 //getheaderasnync returns a instance of a type that be used toget /
 //the rusult of the Rpc at some future time by invoking the receiver fucntion
 //on the returned instance
-func(c *Client) GetHeadersAsync(blockLocators []chainhash.Hash,hashStop *chainhash.Hash) FutureGetBlockResult {
-	locators := make([]string ,len(blockLocators))
-	for i := range blockLocators{
+func (c *Client) GetHeadersAsync(blockLocators []chainhash.Hash, hashStop *chainhash.Hash) FutureGetBlockResult {
+	locators := make([]string, len(blockLocators))
+	for i := range blockLocators {
 		locators[i] = blockLocators[i].String()
 
 	}
@@ -245,7 +245,7 @@ func(c *Client) GetHeadersAsync(blockLocators []chainhash.Hash,hashStop *chainha
 		hash = hashStop.String()
 
 	}
-	cmd  := btcjson.NewGetHeadersCmd(locators,hash)
+	cmd := btcjson.NewGetHeadersCmd(locators, hash)
 	return c.sendCmd(cmd)
 }
 
@@ -259,22 +259,47 @@ func (c *Client) GetHeaders(blockLocators []chainhash.Hash, hashStop *chainhash.
 	return c.GetHeadersAsync(blockLocators, hashStop).Receive()
 }
 
+//futureexportwathcingwalletresult is a future promise to deliver the reslut
+//of an exportwatchingwalletAsync PRC invocation (or an applicable error).
+type FutureExportWatchingWalletResult chan *response
 
+//receive waits for the response promised by the future and returs the
+//exported wallet
+func (r FutureExportWatchingWalletResult) Receive() ([]byte, []byte, error) {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return nil, nil, err
+	}
 
+	//unmarshal result as a json object .
+	var obj map[string]interface{}
+	err = json.Unmarshal(res, &obj)
+	if err != nil {
+		return nil, nil, err
+	}
 
+	//check for the wallet and tx string fields in the object.
+	base64Wallet, ok := obj["wallet"].(string)
+	if !ok {
+		return nil, nil, fmt.Errorf("unpexted response type for"+
+			"exportwatchingwallet 'wallet' field :%T\n", obj["wallet"])
+	}
+	base64TxStore, ok := obj["tx"].(string)
+	if !ok {
+		return nil, nil, fmt.Errorf("unexpected response type for "+
+			"exportedwatchingwallet 'tx' field :%T\n", obj["tx"])
+	}
 
+	walletBytes, err := base64.StdEncoding.DecodeString(base64Wallet)
+	if err != nil {
+		return nil, nil, err
+	}
+	txStoreBytes, err := base64.StdEncoding.DecodeString(base64TxStore)
+	if err != nil {
+		return nil, nil, err
+	}
 
+	return walletBytes, txStoreBytes, nil
 
-
-
-
-
-
-
-
-
-
-
-
-
+}
 
