@@ -2,6 +2,7 @@ package rpcclient
 
 import (
 	"BtcoinProject/chaincfg/chainhash"
+	"encoding/hex"
 	"encoding/json"
 	"github.com/btcsuite/btcutil"
 )
@@ -429,5 +430,59 @@ func (r FutureSubmitBlockResult) Receive() error {
 }
 
 
+// FutureSubmitBlockResult is a future promise to deliver the result of a
+// SubmitBlockAsync RPC invocation (or an applicable error).
+type FutureSubmitBlockResult chan *response
+
+// Receive waits for the response promised by the future and returns an error if
+// any occurred when submitting the block.
+func (r FutureSubmitBlockResult) Receive() error {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return err
+	}
+
+	if string(res) != "null" {
+		var result string
+		err = json.Unmarshal(res, &result)
+		if err != nil {
+			return err
+		}
+
+		return errors.New(result)
+	}
+
+	return nil
+
+}
+
+// SubmitBlockAsync returns an instance of a type that can be used to get the
+// result of the RPC at some future time by invoking the Receive function on the
+// returned instance.
+//
+// See SubmitBlock for the blocking version and more details.
+func (c *Client) SubmitBlockAsync(block *btcutil.Block, options *btcjson.SubmitBlockOptions) FutureSubmitBlockResult {
+	blockHex := ""
+	if block != nil {
+		blockBytes, err := block.Bytes()
+		if err != nil {
+			return newFutureError(err)
+		}
+
+		blockHex = hex.EncodeToString(blockBytes)
+	}
+
+	cmd := btcjson.NewSubmitBlockCmd(blockHex, options)
+	return c.sendCmd(cmd)
+}
+
+// SubmitBlock attempts to submit a new block into the bitcoin network.
+func (c *Client) SubmitBlock(block *btcutil.Block, options *btcjson.SubmitBlockOptions) error {
+	return c.SubmitBlockAsync(block, options).Receive()
+}
+
+// TODO(davec): Implement GetBlockTemplate
+
+//over
 
 
