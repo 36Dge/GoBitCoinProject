@@ -362,5 +362,72 @@ func (c *Client) GetWork() (*btcjson.GetWorkResult, error) {
 }
 
 
+// FutureGetWorkSubmit is a future promise to deliver the result of a
+// GetWorkSubmitAsync RPC invocation (or an applicable error).
+type FutureGetWorkSubmit chan *response
+
+// Receive waits for the response promised by the future and returns whether
+// or not the submitted block header was accepted.
+func (r FutureGetWorkSubmit) Receive() (bool, error) {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return false, err
+	}
+
+	// Unmarshal result as a boolean.
+	var accepted bool
+	err = json.Unmarshal(res, &accepted)
+	if err != nil {
+		return false, err
+	}
+
+	return accepted, nil
+}
+
+// GetWorkSubmitAsync returns an instance of a type that can be used to get the
+// result of the RPC at some future time by invoking the Receive function on the
+// returned instance.
+//
+// See GetWorkSubmit for the blocking version and more details.
+func (c *Client) GetWorkSubmitAsync(data string) FutureGetWorkSubmit {
+	cmd := btcjson.NewGetWorkCmd(&data)
+	return c.sendCmd(cmd)
+}
+
+// GetWorkSubmit submits a block header which is a solution to previously
+// requested data and returns whether or not the solution was accepted.
+//
+// See GetWork to request data to work on.
+func (c *Client) GetWorkSubmit(data string) (bool, error) {
+	return c.GetWorkSubmitAsync(data).Receive()
+}
+
+// FutureSubmitBlockResult is a future promise to deliver the result of a
+// SubmitBlockAsync RPC invocation (or an applicable error).
+type FutureSubmitBlockResult chan *response
+
+// Receive waits for the response promised by the future and returns an error if
+// any occurred when submitting the block.
+func (r FutureSubmitBlockResult) Receive() error {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return err
+	}
+
+	if string(res) != "null" {
+		var result string
+		err = json.Unmarshal(res, &result)
+		if err != nil {
+			return err
+		}
+
+		return errors.New(result)
+	}
+
+	return nil
+
+}
+
+
 
 
