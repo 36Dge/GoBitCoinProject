@@ -3,6 +3,7 @@ package rpcclient
 import (
 	"BtcoinProject/chaincfg/chainhash"
 	"encoding/json"
+	"github.com/btcsuite/btcutil"
 )
 
 // FutureGenerateResult is a future promise to deliver the result of a
@@ -82,5 +83,115 @@ func (f FutureGenerateToAddressResult) Receive() ([]*chainhash.Hash, error) {
 	}
 
 	return convertedResult, nil
+}
+/ GenerateToAddressAsync returns an instance of a type that can be used to get
+// the result of the RPC at some future time by invoking the Receive function on
+// the returned instance.
+//
+// See GenerateToAddress for the blocking version and more details.
+func (c *Client) GenerateToAddressAsync(numBlocks int64, address btcutil.Address, maxTries *int64) FutureGenerateToAddressResult {
+	cmd := btcjson.NewGenerateToAddressCmd(numBlocks, address.EncodeAddress(), maxTries)
+	return c.sendCmd(cmd)
+}
+
+// GenerateToAddress generates numBlocks blocks to the given address and returns their hashes.
+func (c *Client) GenerateToAddress(numBlocks int64, address btcutil.Address, maxTries *int64) ([]*chainhash.Hash, error) {
+	return c.GenerateToAddressAsync(numBlocks, address, maxTries).Receive()
+}
+
+// FutureGetGenerateResult is a future promise to deliver the result of a
+// GetGenerateAsync RPC invocation (or an applicable error).
+type FutureGetGenerateResult chan *response
+
+// Receive waits for the response promised by the future and returns true if the
+// server is set to mine, otherwise false.
+func (r FutureGetGenerateResult) Receive() (bool, error) {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return false, err
+	}
+
+	// Unmarshal result as a boolean.
+	var result bool
+	err = json.Unmarshal(res, &result)
+	if err != nil {
+		return false, err
+	}
+
+	return result, nil
+}
+
+// GetGenerateAsync returns an instance of a type that can be used to get
+// the result of the RPC at some future time by invoking the Receive function on
+// the returned instance.
+//
+// See GetGenerate for the blocking version and more details.
+func (c *Client) GetGenerateAsync() FutureGetGenerateResult {
+	cmd := btcjson.NewGetGenerateCmd()
+	return c.sendCmd(cmd)
+}
+
+// GetGenerate returns true if the server is set to mine, otherwise false.
+func (c *Client) GetGenerate() (bool, error) {
+	return c.GetGenerateAsync().Receive()
+}
+
+// FutureSetGenerateResult is a future promise to deliver the result of a
+// SetGenerateAsync RPC invocation (or an applicable error).
+type FutureSetGenerateResult chan *response
+
+// Receive waits for the response promised by the future and returns an error if
+// any occurred when setting the server to generate coins (mine) or not.
+func (r FutureSetGenerateResult) Receive() error {
+	_, err := receiveFuture(r)
+	return err
+}
+
+// SetGenerateAsync returns an instance of a type that can be used to get the
+// result of the RPC at some future time by invoking the Receive function on the
+// returned instance.
+//
+// See SetGenerate for the blocking version and more details.
+func (c *Client) SetGenerateAsync(enable bool, numCPUs int) FutureSetGenerateResult {
+	cmd := btcjson.NewSetGenerateCmd(enable, &numCPUs)
+	return c.sendCmd(cmd)
+}
+
+// SetGenerate sets the server to generate coins (mine) or not.
+func (c *Client) SetGenerate(enable bool, numCPUs int) error {
+	return c.SetGenerateAsync(enable, numCPUs).Receive()
+}
+
+// FutureGetHashesPerSecResult is a future promise to deliver the result of a
+// GetHashesPerSecAsync RPC invocation (or an applicable error).
+type FutureGetHashesPerSecResult chan *response
+
+// Receive waits for the response promised by the future and returns a recent
+// hashes per second performance measurement while generating coins (mining).
+// Zero is returned if the server is not mining.
+func (r FutureGetHashesPerSecResult) Receive() (int64, error) {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return -1, err
+	}
+
+	// Unmarshal result as an int64.
+	var result int64
+	err = json.Unmarshal(res, &result)
+	if err != nil {
+		return 0, err
+	}
+
+	return result, nil
+}
+
+// GetHashesPerSecAsync returns an instance of a type that can be used to get
+// the result of the RPC at some future time by invoking the Receive function on
+// the returned instance.
+//
+// See GetHashesPerSec for the blocking version and more details.
+func (c *Client) GetHashesPerSecAsync() FutureGetHashesPerSecResult {
+	cmd := btcjson.NewGetHashesPerSecCmd()
+	return c.sendCmd(cmd)
 }
 
