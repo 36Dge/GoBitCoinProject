@@ -322,5 +322,45 @@ func (c *Client) GetNetworkHashPS3(blocks, height int) (int64, error) {
 	return c.GetNetworkHashPS3Async(blocks, height).Receive()
 }
 
+// FutureGetWork is a future promise to deliver the result of a
+// GetWorkAsync RPC invocation (or an applicable error).
+type FutureGetWork chan *response
+
+// Receive waits for the response promised by the future and returns the hash
+// data to work on.
+func (r FutureGetWork) Receive() (*btcjson.GetWorkResult, error) {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unmarshal result as a getwork result object.
+	var result btcjson.GetWorkResult
+	err = json.Unmarshal(res, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetWorkAsync returns an instance of a type that can be used to get the result
+// of the RPC at some future time by invoking the Receive function on the
+// returned instance.
+//
+// See GetWork for the blocking version and more details.
+func (c *Client) GetWorkAsync() FutureGetWork {
+	cmd := btcjson.NewGetWorkCmd(nil)
+	return c.sendCmd(cmd)
+}
+
+// GetWork returns hash data to work on.
+//
+// See GetWorkSubmit to submit the found solution.
+func (c *Client) GetWork() (*btcjson.GetWorkResult, error) {
+	return c.GetWorkAsync().Receive()
+}
+
+
 
 
