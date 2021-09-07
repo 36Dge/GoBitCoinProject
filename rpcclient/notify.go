@@ -8,3 +8,14 @@ var (
 	ErrWebsocketsRequired = errors.New("a websocket connection is required " +
 		"to use this feature")
 )
+
+//notificationState is used to track the current state of successfully
+//registered notification so the state can be atuomatically re-eastablish
+//reconnect.
+type notificationState struct {
+	notifyBlocks       bool
+	notifyNewTx        bool
+	notifyNewTxVerbose bool
+	notifyReceived     map[string]struct{}
+	notifySpent        map[btcjson.OutPoint]struct{}
+}
