@@ -1,5 +1,10 @@
 package rpcclient
 
+import (
+	"BtcoinProject/chaincfg/chainhash"
+	"time"
+)
+
 var (
 	// ErrWebsocketsRequired is an error to describe the condition where the
 	// caller is trying to use a websocket-only feature, such as requesting
@@ -58,6 +63,19 @@ func newNilFutureResult() chan *response {
 	return responseChan
 }
 
+type NotificationHandlers struct {
+	//onclientconnected is invoked when the client connects or reconnects
+	//to the rpc server.this callback is run async with the rest of the
+	//notification handlers and is safe for blocking client request.
+	OnClientConnected func()
+
+	//onblockconnected is invoked when a block is connected to the longest
+	//best chain .it will only be invoked if a preceding call to notifyblocks
+	//has been made to register for the notification and the function is non-nil
+	//drprecated:use onfilteredblockconnected instead.
+	OnBlockConnected func(hash *chainhash.Hash,height int32,t time.Time)
+
+}
 
 
 
