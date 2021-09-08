@@ -19,3 +19,39 @@ type notificationState struct {
 	notifyReceived     map[string]struct{}
 	notifySpent        map[btcjson.OutPoint]struct{}
 }
+
+//copy returns a deep copy of the receice.
+func(s *notificationState) Copy()*notificationState{
+	var stateCopy notificationState
+	stateCopy.notifyBlocks = s.notifyBlocks
+	stateCopy.notifyNewTx= s.notifyNewTx
+	stateCopy.notifyNewTxVerbose = s.notifyNewTxVerbose
+	stateCopy.notifyReceived = make(map[string]struct{})
+	for addr := range s.notifyReceived {
+		stateCopy.notifyReceived[addr] = struct{}{}
+
+	}
+
+	stateCopy.notifySpent = make(map[btcjson.OutPoint]struct{})
+	for op := range s.notifySpent{
+		stateCopy.notifySpent[op] = struct{}{}
+
+	}
+	return &stateCopy
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
