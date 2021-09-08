@@ -40,6 +40,24 @@ func(s *notificationState) Copy()*notificationState{
 	return &stateCopy
 }
 
+//newnotficationstate returns a  new notification state ready to be populatee.
+func newNotificaionState()*notificationState{
+	return &notificationState{
+		notifyReceived: make(map[string]struct{}),
+		notifySpent: make(map[btcjson.OutPoint]struct{}),
+	}
+}
+
+// newNilFutureResult returns a new future result channel that already has the
+// result waiting on the channel with the reply set to nil.  This is useful
+// to ignore things such as notifications when the caller didn't specify any
+// notification handlers.
+func newNilFutureResult() chan *response {
+	responseChan := make(chan *response, 1)
+	responseChan <- &response{result: nil, err: nil}
+	return responseChan
+}
+
 
 
 
