@@ -99,6 +99,14 @@ type NotificationHandlers struct {
 	OnFilteredBlockDisconnected func(height int32, header *wire.BlockHeader)
 
 
+	// OnRecvTx is invoked when a transaction that receives funds to a
+	// registered address is received into the memory pool and also
+	// connected to the longest (best) chain.  It will only be invoked if a
+	// preceding call to NotifyReceived, Rescan, or RescanEndHeight has been
+	// made to register for the notification and the function is non-nil.
+	//
+	// Deprecated: Use OnRelevantTxAccepted instead.
+	OnRecvTx func(transaction *btcutil.Tx, details *btcjson.BlockDetails)
 
 
 
