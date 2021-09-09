@@ -2,6 +2,8 @@ package rpcclient
 
 import (
 	"BtcoinProject/chaincfg/chainhash"
+	"BtcoinProject/wire"
+	"github.com/btcsuite/btcutil"
 	"time"
 )
 
@@ -74,6 +76,33 @@ type NotificationHandlers struct {
 	//has been made to register for the notification and the function is non-nil
 	//drprecated:use onfilteredblockconnected instead.
 	OnBlockConnected func(hash *chainhash.Hash,height int32,t time.Time)
+
+	//onfilterblockconnceted is invoked when a block is connected to the
+	//longest best chain.it will only be invoked if a preceding call to
+	//notifyblocks has been made to register for the nofitication and the functiion
+	//and the function is non-nil,its parameter differ from onblockconnected
+	//it receiver the block,s height header,and relevant trnasaction.
+	OnFliteredBlockConnected func(height int32,header *wire.BlockHeader,txs []*btcutil.Tx)
+
+	//onblockdisconnected is invoked when a block is disconected from the
+	//lognest chain.it will only be invoked if a preceding call to
+	//notifyBlocks has been made to register for the notiifcation and the
+	//function is non-nil
+	onBlockDisconnected func(hash *chainhash.Hash,height int32,t time.Time)
+
+
+	// OnFilteredBlockDisconnected is invoked when a block is disconnected
+	// from the longest (best) chain.  It will only be invoked if a
+	// preceding NotifyBlocks has been made to register for the notification
+	// and the call to function is non-nil.  Its parameters differ from
+	// OnBlockDisconnected: it receives the block's height and header.
+	OnFilteredBlockDisconnected func(height int32, header *wire.BlockHeader)
+
+
+
+
+
+
 
 }
 
