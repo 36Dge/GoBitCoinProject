@@ -4,6 +4,7 @@ import (
 	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
 	"encoding/json"
+	"fmt"
 	"github.com/btcsuite/btcutil"
 	"time"
 )
@@ -185,11 +186,14 @@ type NotificationHandlers struct {
 	// about.
 	OnUnknownNotification func(method string, params []json.RawMessage)
 
-
-
-
 }
 
+type wrongNumParams int
+
+//error satisfies the builtin error interface.
+func(e wrongNumParams) Error()string {
+	return fmt.Sprintf("wrong number of parameters(%d)",e)
+}
 
 
 
