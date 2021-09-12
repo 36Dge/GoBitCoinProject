@@ -196,6 +196,35 @@ func(e wrongNumParams) Error()string {
 }
 
 
+// NotifyBlocks registers the client to receive notifications when blocks are
+// connected and disconnected from the main chain.  The notifications are
+// delivered to the notification handlers associated with the client.  Calling
+// this function has no effect if there are no notification handlers and will
+// result in an error if the client is configured to run in HTTP POST mode.
+//
+// The notifications delivered as a result of this call will be via one of
+// OnBlockConnected or OnBlockDisconnected.
+//
+// NOTE: This is a btcd extension and requires a websocket connection.
+func (c *Client) NotifyBlocks() error {
+	return c.NotifyBlocksAsync().Receive()
+}
+
+// FutureNotifySpentResult is a future promise to deliver the result of a
+// NotifySpentAsync RPC invocation (or an applicable error).
+//
+// Deprecated: Use FutureLoadTxFilterResult instead.
+type FutureNotifySpentResult chan *response
+
+// Receive waits for the response promised by the future and returns an error
+// if the registration was not successful.
+func (r FutureNotifySpentResult) Receive() error {
+	_, err := receiveFuture(r)
+	return err
+}
+
+
+
 
 
 
