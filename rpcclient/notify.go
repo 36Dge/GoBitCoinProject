@@ -231,6 +231,16 @@ func (r FutureNotifySpentResult) Receive() error {
 
 
 
+// LoadTxFilter loads, reloads, or adds data to a websocket client's transaction
+// filter.  The filter is consistently updated based on inspected transactions
+// during mempool acceptance, block acceptance, and for all rescanned blocks.
+//
+// NOTE: This is a btcd extension ported from github.com/decred/dcrrpcclient
+// and requires a websocket connection.
+func (c *Client) LoadTxFilter(reload bool, addresses []btcutil.Address, outPoints []wire.OutPoint) error {
+	return c.LoadTxFilterAsync(reload, addresses, outPoints).Receive()
+}
+
 
 
 
