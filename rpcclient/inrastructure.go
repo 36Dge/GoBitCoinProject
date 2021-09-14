@@ -283,6 +283,7 @@ type rawResponse struct {
 	Error  *btcjson.RPCError `json:"error"`
 }
 
+
 //result checks whether the ummarshaled response contains a non-nil error.
 //returing an ummarshaled btcjson.rpcerror (or an unmarhsling error)if so.
 //if the response is not an error the raw bytes of the request are returned
