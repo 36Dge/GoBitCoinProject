@@ -60,3 +60,11 @@ func (c *Client) RawRequestAsync(method string, params []json.RawMessage) Future
 	return responseChan
 
 }
+// RawRequest allows the caller to send a raw or custom request to the server.
+// This method may be used to send and receive requests and responses for
+// requests that are not handled by this client package, or to proxy partially
+// unmarshaled requests to another JSON-RPC server if a request cannot be
+// handled directly.
+func (c *Client) RawRequest(method string, params []json.RawMessage) (json.RawMessage, error) {
+	return c.RawRequestAsync(method, params).Receive()
+}
