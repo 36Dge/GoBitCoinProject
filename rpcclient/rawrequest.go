@@ -48,7 +48,7 @@ func (c *Client) RawRequestAsync(method string, params []json.RawMessage) Future
 	}
 
 	//generate the request and send it along with a channel to respond on.
-	responseChan := make(chan *respone, 1)
+	responseChan := make(chan *response, 1)
 	jReq := &jsonRequest{
 		id:             id,
 		method:         method,
@@ -56,7 +56,7 @@ func (c *Client) RawRequestAsync(method string, params []json.RawMessage) Future
 		marshalledJSON: marshalledJSON,
 		responseChan:   responseChan,
 	}
-	c.sendRequst(jReq)
+	c.sendRequest(jReq)
 	return responseChan
 
 }
@@ -68,3 +68,5 @@ func (c *Client) RawRequestAsync(method string, params []json.RawMessage) Future
 func (c *Client) RawRequest(method string, params []json.RawMessage) (json.RawMessage, error) {
 	return c.RawRequestAsync(method, params).Receive()
 }
+
+//over
