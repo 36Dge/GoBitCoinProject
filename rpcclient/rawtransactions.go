@@ -1,6 +1,7 @@
 package rpcclient
 
 import (
+	"BtcoinProject/chaincfg/chainhash"
 	"BtcoinProject/wire"
 	"bytes"
 	"encoding/hex"
@@ -90,6 +91,29 @@ func (r FutureGetRawTransactionResult) Receive()(*btcutil.Tx,error){
 	}
 
 	return btcutil.NewTx(&msgTx),nil
+}
+
+//getrawtrnactionasync returns an insatnace of a type that can be used to get
+//the result of the rpc at some future time by invoking the receive function
+//the returned instance.
+
+// See GetRawTransaction for the blocking version and more details.
+func (c *Client) GetRawTransactionAsync(txHash *chainhash.Hash) FutureGetRawTransactionResult {
+	hash := ""
+	if txHash != nil {
+		hash = txHash.String()
+	}
+
+	cmd := btcjson.NewGetRawTransactionCmd(hash, btcjson.Int(0))
+	return c.sendCmd(cmd)
+}
+
+// GetRawTransaction returns a transaction given its hash.
+//
+// See GetRawTransactionVerbose to obtain additional information about the
+// transaction.
+func (c *Client) GetRawTransaction(txHash *chainhash.Hash) (*btcutil.Tx, error) {
+	return c.GetRawTransactionAsync(txHash).Receive()
 }
 
 
