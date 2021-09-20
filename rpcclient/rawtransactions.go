@@ -201,6 +201,141 @@ func (c *Client) DecodeRawTransaction(serializedTx []byte) (*btcjson.TxRawResult
 }
 
 
+//futurecreaterawtransactionresult is future pormise to deliver the result
+//of a cleaterawtransactionasync ppc invaction (or an applicabe error)
+type FutureCreateRawTransactionResult chan *response
+
+// Receive waits for the response promised by the future and returns a new
+// transaction spending the provided inputs and sending to the provided
+// addresses.
+func (r FutureCreateRawTransactionResult) Receive() (*wire.MsgTx, error) {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unmarshal result as a string.
+	var txHex string
+	err = json.Unmarshal(res, &txHex)
+	if err != nil {
+		return nil, err
+	}
+
+	// Decode the serialized transaction hex to raw bytes.
+	serializedTx, err := hex.DecodeString(txHex)
+	if err != nil {
+		return nil, err
+	}
+
+	// Deserialize the transaction and return it.
+	var msgTx wire.MsgTx
+	// we try both the new and old encoding format
+	witnessErr := msgTx.Deserialize(bytes.NewReader(serializedTx))
+	if witnessErr != nil {
+		legacyErr := msgTx.DeserializeNoWitness(bytes.NewReader(serializedTx))
+		if legacyErr != nil {
+			return nil, legacyErr
+		}
+	}
+	return &msgTx, nil
+}
+
+// CreateRawTransactionAsync returns an instance of a type that can be used to
+// get the result of the RPC at some future time by invoking the Receive
+// function on the returned instance.
+//
+// See CreateRawTransaction for the blocking version and more details.
+func (c *Client) CreateRawTransactionAsync(inputs []btcjson.TransactionInput,
+	amounts map[btcutil.Address]btcutil.Amount, lockTime *int64) FutureCreateRawTransactionResult {
+
+	convertedAmts := make(map[string]float64, len(amounts))
+	for addr, amount := range amounts {
+		convertedAmts[addr.String()] = amount.ToBTC()
+	}
+	cmd := btcjson.NewCreateRawTransactionCmd(inputs, convertedAmts, lockTime)
+	return c.sendCmd(cmd)
+}
+
+// CreateRawTransaction returns a new transaction spending the provided inputs
+// and sending to the provided addresses.
+func (c *Client) CreateRawTransaction(inputs []btcjson.TransactionInput,
+	amounts map[btcutil.Address]btcutil.Amount, lockTime *int64) (*wire.MsgTx, error) {
+
+	return c.CreateRawTransactionAsync(inputs, amounts, lockTime).Receive()
+}
+
+// FutureSendRawTransactionResult is a future promise to deliver the result
+// of a SendRawTransactionAsync RPC invocation (or an applicable error).
+type FutureSendRawTransactionResult chan *response
+
+// Receive waits for the response promised by the future and returns the result
+// of submitting the encoded transaction to the server which then relays it to
+// the network.
+func (r FutureSendRawTransactionResult) Receive() (*chainhash.Hash, error) {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unmarshal result as a string.
+	var txHashStr string
+	err = json.Unmarshal(res, &txHashStr)
+	if err != nil {
+		return nil, err
+	}
+
+	return chainhash.NewHashFromStr(txHashStr)
+}
+
+// SendRawTransactionAsync returns an instance of a type that can be used to get
+// the result of the RPC at some future time by invoking the Receive function on
+// the returned instance.
+//
+// See SendRawTransaction for the blocking version and more details.
+func (c *Client) SendRawTransactionAsync(tx *wire.MsgTx, allowHighFees bool) FutureSendRawTransactionResult {
+	txHex := ""
+	if tx != nil {
+		// Serialize the transaction and convert to hex string.
+		buf := bytes.NewBuffer(make([]byte, 0, tx.SerializeSize()))
+		if err := tx.Serialize(buf); err != nil {
+			return newFutureError(err)
+		}
+		txHex = hex.EncodeToString(buf.Bytes())
+	}
+
+	// Due to differences in the sendrawtransaction API for different
+	// backends, we'll need to inspect our version and construct the
+	// appropriate request.
+	version, err := c.BackendVersion()
+	if err != nil {
+		return newFutureError(err)
+	}
+
+	var cmd *btcjson.SendRawTransactionCmd
+	switch version {
+	// Starting from bitcoind v0.19.0, the MaxFeeRate field should be used.
+	case BitcoindPost19:
+		// Using a 0 MaxFeeRate is interpreted as a maximum fee rate not
+		// being enforced by bitcoind.
+		var maxFeeRate int32
+		if !allowHighFees {
+			maxFeeRate = defaultMaxFeeRate
+		}
+		cmd = btcjson.NewBitcoindSendRawTransactionCmd(txHex, maxFeeRate)
+
+	// Otherwise, use the AllowHighFees field.
+	default:
+		cmd = btcjson.NewSendRawTransactionCmd(txHex, &allowHighFees)
+	}
+
+	return c.sendCmd(cmd)
+}
+
+// SendRawTransaction submits the encoded transaction to the server which will
+// then relay it to the network.
+func (c *Client) SendRawTransaction(tx *wire.MsgTx, allowHighFees bool) (*chainhash.Hash, error) {
+	return c.SendRawTransactionAsync(tx, allowHighFees).Receive()
+}
 
 
 
