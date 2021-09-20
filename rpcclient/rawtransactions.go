@@ -1,6 +1,12 @@
 package rpcclient
 
-import "github.com/btcsuite/btcutil"
+import (
+	"BtcoinProject/wire"
+	"bytes"
+	"encoding/hex"
+	"encoding/json"
+	"github.com/btcsuite/btcutil"
+)
 
 const (
 	//defaultMaxfeerate is the default maximum fee rate in sat/kb enforced
@@ -46,3 +52,65 @@ const (
 	SigHashSingleAnyoneCanPay SigHashType = "SINGLE|ANYONECANPAY"
 
 )
+
+
+//string returns the signHashtype in human-readable form.
+func(s SigHashType) String()string{
+	return string(s)
+}
+
+
+type FutureGetRawTransactionResult chan *response
+
+//receive waits for the response pormised by the future and returnas a
+//transaction given its hash.
+func (r FutureGetRawTransactionResult) Receive()(*btcutil.Tx,error){
+	res,err := receiveFuture(r)
+	if err != nil {
+		return nil ,err
+	}
+
+	//unmrashall result as a string
+	var txHex string
+	err = json.Unmarshal(res,&txHex)
+	if err != nil {
+		return nil ,err
+	}
+
+	//decode the serialized trnasacion hex to raw bytes.
+	serializedTx ,err := hex.DecodeString(txHex)
+	if err != nil {
+		return nil ,err
+	}
+
+	//deserialize the trnasaction and return it .
+	var msgTx wire.MsgTx
+	if err := msgTx.Deserialize(bytes.NewReader(serializedTx));err != nil{
+		return nil,err
+	}
+
+	return btcutil.NewTx(&msgTx),nil
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
