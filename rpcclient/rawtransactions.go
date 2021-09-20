@@ -115,6 +115,90 @@ func (c *Client) GetRawTransactionAsync(txHash *chainhash.Hash) FutureGetRawTran
 func (c *Client) GetRawTransaction(txHash *chainhash.Hash) (*btcutil.Tx, error) {
 	return c.GetRawTransactionAsync(txHash).Receive()
 }
+// FutureGetRawTransactionVerboseResult is a future promise to deliver the
+// result of a GetRawTransactionVerboseAsync RPC invocation (or an applicable
+// error).
+type FutureGetRawTransactionVerboseResult chan *response
+
+// Receive waits for the response promised by the future and returns information
+// about a transaction given its hash.
+func (r FutureGetRawTransactionVerboseResult) Receive() (*btcjson.TxRawResult, error) {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unmarshal result as a gettrawtransaction result object.
+	var rawTxResult btcjson.TxRawResult
+	err = json.Unmarshal(res, &rawTxResult)
+	if err != nil {
+		return nil, err
+	}
+
+	return &rawTxResult, nil
+}
+
+// GetRawTransactionVerboseAsync returns an instance of a type that can be used
+// to get the result of the RPC at some future time by invoking the Receive
+// function on the returned instance.
+//
+// See GetRawTransactionVerbose for the blocking version and more details.
+func (c *Client) GetRawTransactionVerboseAsync(txHash *chainhash.Hash) FutureGetRawTransactionVerboseResult {
+	hash := ""
+	if txHash != nil {
+		hash = txHash.String()
+	}
+
+	cmd := btcjson.NewGetRawTransactionCmd(hash, btcjson.Int(1))
+	return c.sendCmd(cmd)
+}
+
+// GetRawTransactionVerbose returns information about a transaction given
+// its hash.
+//
+// See GetRawTransaction to obtain only the transaction already deserialized.
+func (c *Client) GetRawTransactionVerbose(txHash *chainhash.Hash) (*btcjson.TxRawResult, error) {
+	return c.GetRawTransactionVerboseAsync(txHash).Receive()
+}
+
+// FutureDecodeRawTransactionResult is a future promise to deliver the result
+// of a DecodeRawTransactionAsync RPC invocation (or an applicable error).
+type FutureDecodeRawTransactionResult chan *response
+
+// Receive waits for the response promised by the future and returns information
+// about a transaction given its serialized bytes.
+func (r FutureDecodeRawTransactionResult) Receive() (*btcjson.TxRawResult, error) {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unmarshal result as a decoderawtransaction result object.
+	var rawTxResult btcjson.TxRawResult
+	err = json.Unmarshal(res, &rawTxResult)
+	if err != nil {
+		return nil, err
+	}
+
+	return &rawTxResult, nil
+}
+
+// DecodeRawTransactionAsync returns an instance of a type that can be used to
+// get the result of the RPC at some future time by invoking the Receive
+// function on the returned instance.
+//
+// See DecodeRawTransaction for the blocking version and more details.
+func (c *Client) DecodeRawTransactionAsync(serializedTx []byte) FutureDecodeRawTransactionResult {
+	txHex := hex.EncodeToString(serializedTx)
+	cmd := btcjson.NewDecodeRawTransactionCmd(txHex)
+	return c.sendCmd(cmd)
+}
+
+// DecodeRawTransaction returns information about a transaction given its
+// serialized bytes.
+func (c *Client) DecodeRawTransaction(serializedTx []byte) (*btcjson.TxRawResult, error) {
+	return c.DecodeRawTransactionAsync(serializedTx).Receive()
+}
 
 
 
