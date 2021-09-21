@@ -337,6 +337,12 @@ func (c *Client) SendRawTransaction(tx *wire.MsgTx, allowHighFees bool) (*chainh
 	return c.SendRawTransactionAsync(tx, allowHighFees).Receive()
 }
 
+// FutureSignRawTransactionResult is a future promise to deliver the result
+// of one of the SignRawTransactionAsync family of RPC invocations (or an
+// applicable error).
+type FutureSignRawTransactionResult chan *response
+
+
 
 
 
