@@ -342,7 +342,35 @@ func (c *Client) SendRawTransaction(tx *wire.MsgTx, allowHighFees bool) (*chainh
 // applicable error).
 type FutureSignRawTransactionResult chan *response
 
+//receive waits for the message promised by the future and retuns the
+//singed transaction as well as whther or not all inputs are not singed.
+func(r FutureSignRawTransactionResult) Receive()(*wire.MsgTx,bool,error){
+	res,err := receiveFuture(r)
+	if err != nil {
+		return nil,false,err
+	}
 
+	//unmarshall as a singrawtransacion result.
+	var signRawTxResult btcjson.SignRawTransactionResult
+	err = json.Unmarshal(res,&signRawTxResult)
+	if err != nil {
+		return nil,false,err
+	}
+
+	//decode the serialized trnasacion hex to raw bytes.
+	serializeTx,err := hex.DecodeString(signRawTxResult.Hex)
+	if err != nil {
+		return nil,false,err
+	}
+
+	//deserialize the transacion and return it.
+	var msgTx wire.MsgTx
+	if err := msgTx.Deserialize(bytes.NewReader(serializeTx));err != nil {
+		return nil, false, err
+	}
+
+	return &msgTx,singRawTxResult.complete,nil
+}
 
 
 
