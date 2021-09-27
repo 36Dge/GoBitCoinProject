@@ -372,6 +372,10 @@ func(r FutureSignRawTransactionResult) Receive()(*wire.MsgTx,bool,error){
 	return &msgTx,singRawTxResult.complete,nil
 }
 
+//signrawtransactionasync returns an instnace of a type that can be used to
+//the result of the rpc at some future time by invlking the receive function
+//the returned instance.
+
 
 
 
