@@ -377,6 +377,37 @@ func(r FutureSignRawTransactionResult) Receive()(*wire.MsgTx,bool,error){
 //the returned instance.
 
 
+//see singrawtransaction for the blocking version and more details.
+func(c *Client)SignRawTransactionAsync(tx *wire.MsgTx)FutureSignRawTransactionResult {
+	txHex := ""
+	if tx != nil {
+		//serialize the transaction and convert to hex string
+		buf := bytes.NewBuffer(make([]byte,0,tx.SerializeSize()))
+		if err := tx.Serialize(buf);err != nil {
+			return newFutureError(err)
+
+		}
+		txHex = hex.EncodeToString(buf.Bytes())
+
+	}
+
+	cmd := btcjson.NewSignRawTransactionCmd(txHex,nil,nil)
+	return c.sendCmd(cmd)
+}
+
+// SignRawTransaction signs inputs for the passed transaction and returns the
+// signed transaction as well as whether or not all inputs are now signed.
+//
+// This function assumes the RPC server already knows the input transactions and
+// private keys for the passed transaction which needs to be signed and uses the
+// default signature hash type.  Use one of the SignRawTransaction# variants to
+// specify that information if needed.
+func (c *Client) SignRawTransaction(tx *wire.MsgTx) (*wire.MsgTx, bool, error) {
+	return c.SignRawTransactionAsync(tx).Receive()
+}
+
+
+
 
 
 
