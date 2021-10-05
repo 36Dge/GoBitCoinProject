@@ -423,6 +423,33 @@ func(c *Client)SignRawTransaction2Aync(tx *wire.MsgTx,inputs []btcjson.RawTxInpu
 	cmd := btcjson.NewSignRawTransactionCmd(txHex,&inputs,nil,nil)
 	return c.sendCmd(cmd)
 }
+func (c *Client) SignRawTransaction2(tx *wire.MsgTx, inputs []btcjson.RawTxInput) (*wire.MsgTx, bool, error) {
+	return c.SignRawTransaction2Async(tx, inputs).Receive()
+}
+
+// SignRawTransaction3Async returns an instance of a type that can be used to
+// get the result of the RPC at some future time by invoking the Receive
+// function on the returned instance.
+//
+// See SignRawTransaction3 for the blocking version and more details.
+func (c *Client) SignRawTransaction3Async(tx *wire.MsgTx,
+	inputs []btcjson.RawTxInput,
+	privKeysWIF []string) FutureSignRawTransactionResult {
+
+	txHex := ""
+	if tx != nil {
+		// Serialize the transaction and convert to hex string.
+		buf := bytes.NewBuffer(make([]byte, 0, tx.SerializeSize()))
+		if err := tx.Serialize(buf); err != nil {
+			return newFutureError(err)
+		}
+		txHex = hex.EncodeToString(buf.Bytes())
+	}
+
+	cmd := btcjson.NewSignRawTransactionCmd(txHex, &inputs, &privKeysWIF,
+		nil)
+	return c.sendCmd(cmd)
+}
 
 
 
