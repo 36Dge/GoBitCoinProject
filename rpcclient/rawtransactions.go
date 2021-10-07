@@ -451,6 +451,26 @@ func (c *Client) SignRawTransaction3Async(tx *wire.MsgTx,
 	return c.sendCmd(cmd)
 }
 
+//see signrawtransaction if the PRC server alrady knows the input trnasaction
+//and private keys or signRawTransaction2 if it already konws the privates keys.
+func(c *Client) SignRawTransaction3(tx *wire.MsgTx, inputs []btcjson.RawTxInput,
+	privKeysWIF []string) (*wire.MsgTx,bool,error){
+	return c.SignRawTransaction3Async(tx,inputs,privKeysWIF).Receive()
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
