@@ -530,6 +530,29 @@ func (r FutureSearchRawTransactionResult) Receive() ([]*wire.MsgTx, error) {
 return msgTxns,nil
 }
 
+// SearchRawTransactionsAsync returns an instance of a type that can be used to
+// get the result of the RPC at some future time by invoking the Receive
+// function on the returned instance.
+//
+// See SearchRawTransactions for the blocking version and more details.
+func (c *Client) SearchRawTransactionsAsync(address btcutil.Address, skip, count int, reverse bool, filterAddrs []string) FutureSearchRawTransactionsResult {
+	addr := address.EncodeAddress()
+	verbose := btcjson.Int(0)
+	cmd := btcjson.NewSearchRawTransactionsCmd(addr, verbose, &skip, &count,
+		nil, &reverse, &filterAddrs)
+	return c.sendCmd(cmd)
+}
+
+// FutureSearchRawTransactionsVerboseResult is a future promise to deliver the
+// result of the SearchRawTransactionsVerboseAsync RPC invocation (or an
+// applicable error).
+type FutureSearchRawTransactionsVerboseResult chan *response
+
+
+
+
+
+
 
 
 
