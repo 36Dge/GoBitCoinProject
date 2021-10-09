@@ -482,6 +482,19 @@ func (c *Client) SignRawTransaction4Async(tx *wire.MsgTx,inputs []btcjson.RawTxI
 	return c.sendCmd(cmd)
 }
 
+// This function should only used if a non-default signature hash type is
+// desired.  Otherwise, see SignRawTransaction if the RPC server already knows
+// the input transactions and private keys, SignRawTransaction2 if it already
+// knows the private keys, or SignRawTransaction3 if it does not know both.
+func (c *Client) SignRawTransaction4(tx *wire.MsgTx,
+	inputs []btcjson.RawTxInput, privKeysWIF []string,
+	hashType SigHashType) (*wire.MsgTx, bool, error) {
+
+	return c.SignRawTransaction4Async(tx, inputs, privKeysWIF,
+		hashType).Receive()
+}
+
+
 
 
 
