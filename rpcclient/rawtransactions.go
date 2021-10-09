@@ -12,8 +12,7 @@ import (
 const (
 	//defaultMaxfeerate is the default maximum fee rate in sat/kb enforced
 	//by bitcoinv0.19.0 or after for trnasaction broadcast
-	defaultMaxFeeRate  = btcutil.SatoshiPerBitcent / 10
-
+	defaultMaxFeeRate = btcutil.SatoshiPerBitcent / 10
 )
 
 //signhashtype enumerates the available singature hashing type s
@@ -51,46 +50,43 @@ const (
 	// people to add inputs.  In addition, it uses the SigHashSingle signing
 	// method for outputs.
 	SigHashSingleAnyoneCanPay SigHashType = "SINGLE|ANYONECANPAY"
-
 )
 
-
 //string returns the signHashtype in human-readable form.
-func(s SigHashType) String()string{
+func (s SigHashType) String() string {
 	return string(s)
 }
-
 
 type FutureGetRawTransactionResult chan *response
 
 //receive waits for the response pormised by the future and returnas a
 //transaction given its hash.
-func (r FutureGetRawTransactionResult) Receive()(*btcutil.Tx,error){
-	res,err := receiveFuture(r)
+func (r FutureGetRawTransactionResult) Receive() (*btcutil.Tx, error) {
+	res, err := receiveFuture(r)
 	if err != nil {
-		return nil ,err
+		return nil, err
 	}
 
 	//unmrashall result as a string
 	var txHex string
-	err = json.Unmarshal(res,&txHex)
+	err = json.Unmarshal(res, &txHex)
 	if err != nil {
-		return nil ,err
+		return nil, err
 	}
 
 	//decode the serialized trnasacion hex to raw bytes.
-	serializedTx ,err := hex.DecodeString(txHex)
+	serializedTx, err := hex.DecodeString(txHex)
 	if err != nil {
-		return nil ,err
+		return nil, err
 	}
 
 	//deserialize the trnasaction and return it .
 	var msgTx wire.MsgTx
-	if err := msgTx.Deserialize(bytes.NewReader(serializedTx));err != nil{
-		return nil,err
+	if err := msgTx.Deserialize(bytes.NewReader(serializedTx)); err != nil {
+		return nil, err
 	}
 
-	return btcutil.NewTx(&msgTx),nil
+	return btcutil.NewTx(&msgTx), nil
 }
 
 //getrawtrnactionasync returns an insatnace of a type that can be used to get
@@ -115,6 +111,7 @@ func (c *Client) GetRawTransactionAsync(txHash *chainhash.Hash) FutureGetRawTran
 func (c *Client) GetRawTransaction(txHash *chainhash.Hash) (*btcutil.Tx, error) {
 	return c.GetRawTransactionAsync(txHash).Receive()
 }
+
 // FutureGetRawTransactionVerboseResult is a future promise to deliver the
 // result of a GetRawTransactionVerboseAsync RPC invocation (or an applicable
 // error).
@@ -199,7 +196,6 @@ func (c *Client) DecodeRawTransactionAsync(serializedTx []byte) FutureDecodeRawT
 func (c *Client) DecodeRawTransaction(serializedTx []byte) (*btcjson.TxRawResult, error) {
 	return c.DecodeRawTransactionAsync(serializedTx).Receive()
 }
-
 
 //futurecreaterawtransactionresult is future pormise to deliver the result
 //of a cleaterawtransactionasync ppc invaction (or an applicabe error)
@@ -344,46 +340,45 @@ type FutureSignRawTransactionResult chan *response
 
 //receive waits for the message promised by the future and retuns the
 //singed transaction as well as whther or not all inputs are not singed.
-func(r FutureSignRawTransactionResult) Receive()(*wire.MsgTx,bool,error){
-	res,err := receiveFuture(r)
+func (r FutureSignRawTransactionResult) Receive() (*wire.MsgTx, bool, error) {
+	res, err := receiveFuture(r)
 	if err != nil {
-		return nil,false,err
+		return nil, false, err
 	}
 
 	//unmarshall as a singrawtransacion result.
 	var signRawTxResult btcjson.SignRawTransactionResult
-	err = json.Unmarshal(res,&signRawTxResult)
+	err = json.Unmarshal(res, &signRawTxResult)
 	if err != nil {
-		return nil,false,err
+		return nil, false, err
 	}
 
 	//decode the serialized trnasacion hex to raw bytes.
-	serializeTx,err := hex.DecodeString(signRawTxResult.Hex)
+	serializeTx, err := hex.DecodeString(signRawTxResult.Hex)
 	if err != nil {
-		return nil,false,err
+		return nil, false, err
 	}
 
 	//deserialize the transacion and return it.
 	var msgTx wire.MsgTx
-	if err := msgTx.Deserialize(bytes.NewReader(serializeTx));err != nil {
+	if err := msgTx.Deserialize(bytes.NewReader(serializeTx)); err != nil {
 		return nil, false, err
 	}
 
-	return &msgTx,singRawTxResult.complete,nil
+	return &msgTx, singRawTxResult.complete, nil
 }
 
 //signrawtransactionasync returns an instnace of a type that can be used to
 //the result of the rpc at some future time by invlking the receive function
 //the returned instance.
 
-
 //see singrawtransaction for the blocking version and more details.
-func(c *Client)SignRawTransactionAsync(tx *wire.MsgTx)FutureSignRawTransactionResult {
+func (c *Client) SignRawTransactionAsync(tx *wire.MsgTx) FutureSignRawTransactionResult {
 	txHex := ""
 	if tx != nil {
 		//serialize the transaction and convert to hex string
-		buf := bytes.NewBuffer(make([]byte,0,tx.SerializeSize()))
-		if err := tx.Serialize(buf);err != nil {
+		buf := bytes.NewBuffer(make([]byte, 0, tx.SerializeSize()))
+		if err := tx.Serialize(buf); err != nil {
 			return newFutureError(err)
 
 		}
@@ -391,7 +386,7 @@ func(c *Client)SignRawTransactionAsync(tx *wire.MsgTx)FutureSignRawTransactionRe
 
 	}
 
-	cmd := btcjson.NewSignRawTransactionCmd(txHex,nil,nil)
+	cmd := btcjson.NewSignRawTransactionCmd(txHex, nil, nil)
 	return c.sendCmd(cmd)
 }
 
@@ -405,14 +400,15 @@ func(c *Client)SignRawTransactionAsync(tx *wire.MsgTx)FutureSignRawTransactionRe
 func (c *Client) SignRawTransaction(tx *wire.MsgTx) (*wire.MsgTx, bool, error) {
 	return c.SignRawTransactionAsync(tx).Receive()
 }
+
 //signrawtransaction2async retuns an instance of a type that can be used to
 //get the result of the PRC at some future time by invoking the receive
 //see signRawtrnasaction2 for the blocking version and more details.
-func(c *Client)SignRawTransaction2Aync(tx *wire.MsgTx,inputs []btcjson.RawTxInput) FutureSignRawTransactionResult {
+func (c *Client) SignRawTransaction2Aync(tx *wire.MsgTx, inputs []btcjson.RawTxInput) FutureSignRawTransactionResult {
 	txHex := ""
 	if tx != nil {
 		//serialize the trnasaction and convert to hex string .
-		buf := bytes.NewBuffer(make([]byte,0,tx.SerializeSize()))
+		buf := bytes.NewBuffer(make([]byte, 0, tx.SerializeSize()))
 		if err := tx.Serialize(buf); err != nil {
 			return newFutureError(err)
 
@@ -420,7 +416,7 @@ func(c *Client)SignRawTransaction2Aync(tx *wire.MsgTx,inputs []btcjson.RawTxInpu
 		txHex = hex.EncodeToString(buf.Bytes())
 
 	}
-	cmd := btcjson.NewSignRawTransactionCmd(txHex,&inputs,nil,nil)
+	cmd := btcjson.NewSignRawTransactionCmd(txHex, &inputs, nil, nil)
 	return c.sendCmd(cmd)
 }
 func (c *Client) SignRawTransaction2(tx *wire.MsgTx, inputs []btcjson.RawTxInput) (*wire.MsgTx, bool, error) {
@@ -453,9 +449,9 @@ func (c *Client) SignRawTransaction3Async(tx *wire.MsgTx,
 
 //see signrawtransaction if the PRC server alrady knows the input trnasaction
 //and private keys or signRawTransaction2 if it already konws the privates keys.
-func(c *Client) SignRawTransaction3(tx *wire.MsgTx, inputs []btcjson.RawTxInput,
-	privKeysWIF []string) (*wire.MsgTx,bool,error){
-	return c.SignRawTransaction3Async(tx,inputs,privKeysWIF).Receive()
+func (c *Client) SignRawTransaction3(tx *wire.MsgTx, inputs []btcjson.RawTxInput,
+	privKeysWIF []string) (*wire.MsgTx, bool, error) {
+	return c.SignRawTransaction3Async(tx, inputs, privKeysWIF).Receive()
 }
 
 //signrawtransaction4async returns an instance of a type that can be used to
@@ -463,12 +459,12 @@ func(c *Client) SignRawTransaction3(tx *wire.MsgTx, inputs []btcjson.RawTxInput,
 //on the returned instance.
 
 //see signRawtransaction4 for the blocking version and more details.
-func (c *Client) SignRawTransaction4Async(tx *wire.MsgTx,inputs []btcjson.RawTxInput,
-	privKeysWIF []string,hashType SigHashType) FutureSignRawTransactionResult {
+func (c *Client) SignRawTransaction4Async(tx *wire.MsgTx, inputs []btcjson.RawTxInput,
+	privKeysWIF []string, hashType SigHashType) FutureSignRawTransactionResult {
 	txHex := ""
 	if tx != nil {
 		//serialize the transaction and convert to hex string.
-		buf := bytes.NewBuffer(make([]byte,0,tx.SerializeSize()))
+		buf := bytes.NewBuffer(make([]byte, 0, tx.SerializeSize()))
 		if err := tx.Serialize(buf); err != nil {
 			return newFutureError(err)
 
@@ -494,24 +490,45 @@ func (c *Client) SignRawTransaction4(tx *wire.MsgTx,
 		hashType).Receive()
 }
 
+//futuresearchtransactionresult is a future promise to deliver the result
+//of the serachrawtrnasactionasync PRC invocation(or an applicable error)
+type FutureSearchRawTransactionResult chan *response
 
+//receive waitor for the response promised by the future and retutns the
+//found raw trnasaction.
+func (r FutureSearchRawTransactionResult) Receive() ([]*wire.MsgTx, error) {
+	res, err := receiveFuture(r)
+	if err != nil {
+		return nil, err
+	}
 
+	//unmarshall as an array of string.
+	var searchRawTxnsResult []string
+	err = json.Unmarshal(res, &searchRawTxnsResult)
+	if err != nil {
+		return nil, err
+	}
 
+	//decode and deserialize each trnasaction
+	msgTxns := make([]*wire.MsgTx, 0, len(searchRawTxnsResult))
+	for _, hexTx := range searchRawTxnsResult {
+		//decode the serialize tranaction hex to raw bytes.
+		serializeTx, err := hex.DecodeString(hexTx)
+		if err != nil {
+			return nil, err
+		}
 
+		//deserialize the transaction and add it to the result slice.
+		var msgTx wire.MsgTx
+		err = msgTx.Deserialize(bytes.NewReader(serializeTx	))
+		if err != nil {
+			return nil,err
+		}
+		msgTxns = append(msgTxns,&msgTx)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+	}
+return msgTxns,nil
+}
 
 
 
@@ -553,18 +570,3 @@ func (c *Client) DecodeScriptAsync(serializedScript []byte) FutureDecodeScriptRe
 func (c *Client) DecodeScript(serializedScript []byte) (*btcjson.DecodeScriptResult, error) {
 	return c.DecodeScriptAsync(serializedScript).Receive()
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
