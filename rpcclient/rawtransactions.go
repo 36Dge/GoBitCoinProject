@@ -548,7 +548,21 @@ func (c *Client) SearchRawTransactionsAsync(address btcutil.Address, skip, count
 // applicable error).
 type FutureSearchRawTransactionsVerboseResult chan *response
 
+//receive waits for the response promised by the future and  returns the found raw transactions.
+func(r FutureSearchRawTransactionsVerboseResult) Receive() ([]*btcjson.SearchRawTransactionResult,error) {
+	res ,err := receiveFuture(r)
+	if err != nil{
+		return nil,err
+	}
 
+	//unmarshall as an array of raw transaction results.
+	var result []*btcjson.SearchRawTransactionResult
+	err = json.Unmarshal(res,&result)
+	if err != nil {
+		return nil,err
+	}
+	return result,nil
+}
 
 
 
