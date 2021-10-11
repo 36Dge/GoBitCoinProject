@@ -564,12 +564,6 @@ func(r FutureSearchRawTransactionsVerboseResult) Receive() ([]*btcjson.SearchRaw
 	return result,nil
 }
 
-
-
-
-
-
-
 // FutureDecodeScriptResult is a future promise to deliver the result
 // of a DecodeScriptAsync RPC invocation (or an applicable error).
 type FutureDecodeScriptResult chan *response
@@ -607,3 +601,5 @@ func (c *Client) DecodeScriptAsync(serializedScript []byte) FutureDecodeScriptRe
 func (c *Client) DecodeScript(serializedScript []byte) (*btcjson.DecodeScriptResult, error) {
 	return c.DecodeScriptAsync(serializedScript).Receive()
 }
+
+//over
