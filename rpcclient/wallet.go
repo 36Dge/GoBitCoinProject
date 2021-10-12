@@ -127,6 +127,28 @@ func (c *Client) ListTransactionsCountFrom(account string, count, from int) ([]b
 	return c.ListTransactionsCountFromAsync(account, count, from).Receive()
 }
 
+type FutureListUnspentResult chan *response
+
+//receive waits for the response pormised by the future and returns all
+//unspnet wallet transaction outputs returned by the PRC call.if the
+//future wac returned by a call to LIstunspnetminAsync listunspentminmaxsync.
+//or list,the range may be limited by the paramaters of the RPC invocation.
+func(r FutureListUnspentResult) Receive() ([]btcjson.ListUnspnetResult,error) {
+	res,err := receiveFuture(r)
+	if err != nil {
+		return nil,err
+	}
+
+	//unmarshal result as an array of listunpsnet result.
+	var unspent []btcjson.ListUnspentResult
+	err = json.Unmarshal(res,&unspent)
+	if err != nil {
+		return nil,err
+	}
+
+	return unspent,nil
+}
+
 
 
 
