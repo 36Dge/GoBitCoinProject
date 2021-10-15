@@ -9,4 +9,21 @@ type NodeSubCmd string
 
 const (
 
+	//nconnect indicate the sepcified host that should be connected to .
+	NConnect NodeSubCmd =  "connect"
+
+	//NRemove indicates the speecidied peer that should be removed as a
+	//persistent peer.
+	NRemove NodeSubCmd = "remove"
+	//NDdisocnnet indicates the specified peer should be disconnected.
+	NDisconnect NodeSubCmd = "disconnect"
+
 )
+
+//nodeCmd defines the dropnode JSON-RPC command.
+type NodeCmd struct {
+	SubCmd NodeSubCmd `jsonrpcusage:"\"connect|remove|disconnect\""`
+	Target string
+	ConnectSubCmd *string `jsonrpcusage:"\"perm|temp\""`
+}
+
