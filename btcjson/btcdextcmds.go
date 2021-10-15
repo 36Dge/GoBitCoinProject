@@ -27,3 +27,27 @@ type NodeCmd struct {
 	ConnectSubCmd *string `jsonrpcusage:"\"perm|temp\""`
 }
 
+//newnodecmd returns a new instance which can be used to inssue a `node`
+//json-rpc command.
+//the parameters which are points indicate they are optical .passing nil
+//for optional parameters will use the defualt value.
+func NewNodeCmd (subCmd NodeSubCmd,target string,connectSubCmd *string) *NodeCmd {
+	return &NodeCmd{
+		SubCmd:subCmd,
+		Target:target,
+		ConnectSubCmd:connectSubCmd,
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
