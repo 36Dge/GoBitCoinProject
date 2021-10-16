@@ -39,8 +39,35 @@ func NewNodeCmd (subCmd NodeSubCmd,target string,connectSubCmd *string) *NodeCmd
 	}
 }
 
+//debuglevelcmd defines the debuglevel json_rpc command.this command is not a
+//standard bitcoin command.it is an extension for btcd.
+type DebugLevelCmd struct {
+	levelSpec string
+}
 
+//newdebuglevelcmd returns a new debuglevelcmd which can be used to issue t a
+//debuglevel json_rpc command .this comand is not a standard bitcoin cammand.
+//it is an extension for btcd.
+func NewDebugLevelCmd(levelSpec string) *DebugLevelCmd {
+	return &DebugLevelCmd{levelSpec: levelSpec}
+}
 
+//generatetoaddaddresscmd defines the >.>JSON_PRC command.
+type GenerateToAddressCmd struct {
+	NumBlocks int64
+	Address string
+	MaxTries *int64 `jsonrpcdefault:"1000000"`
+}
+
+// NewGenerateToAddressCmd returns a new instance which can be used to issue a
+// generatetoaddress JSON-RPC command.
+func NewGenerateToAddressCmd(numBlocks int64, address string, maxTries *int64) *GenerateToAddressCmd {
+	return &GenerateToAddressCmd{
+		NumBlocks: numBlocks,
+		Address:   address,
+		MaxTries:  maxTries,
+	}
+}
 
 
 
