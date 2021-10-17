@@ -69,7 +69,28 @@ func NewGenerateToAddressCmd(numBlocks int64, address string, maxTries *int64) *
 	}
 }
 
+//getbestblockcmd define the getbestblock json-rpc command.
+type GetBestBlockCmd struct {
 
+}
+
+
+//netgetbestblockcmd returns a new instance which can be used to issue  a
+//getbestblock json_RPC command.
+func NewGetBestBlockCmd () *GetBestBlockCmd {
+	return &GetBestBlockCmd{}
+}
+
+
+
+// GetCurrentNetCmd defines the getcurrentnet JSON-RPC command.
+type GetCurrentNetCmd struct{}
+
+// NewGetCurrentNetCmd returns a new instance which can be used to issue a
+// getcurrentnet JSON-RPC command.
+func NewGetCurrentNetCmd() *GetCurrentNetCmd {
+	return &GetCurrentNetCmd{}
+}
 
 
 
