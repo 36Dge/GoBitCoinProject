@@ -92,6 +92,22 @@ func NewGetCurrentNetCmd() *GetCurrentNetCmd {
 	return &GetCurrentNetCmd{}
 }
 
+type GetHeadersCmd struct {
+	BlockLocators []string `json:"blockLocators"`
+	HashStop string `json:"hashstop"`
+}
+
+// NewGetHeadersCmd returns a new instance which can be used to issue a
+// getheaders JSON-RPC command.
+//
+// NOTE: This is a btcsuite extension ported from
+// github.com/decred/dcrd/dcrjson.
+func NewGetHeadersCmd(blockLocators []string, hashStop string) *GetHeadersCmd {
+	return &GetHeadersCmd{
+		BlockLocators: blockLocators,
+		HashStop:      hashStop,
+	}
+}
 
 
 
