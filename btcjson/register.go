@@ -1,6 +1,10 @@
 package btcjson
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 //usageflags define flags that specify additional properties about the
 //circumstances under which a command can be used.
@@ -32,7 +36,31 @@ var usageFlagStrings = map[UsageFlag]string {
 	UFWebsocketOnly: "UFWebsocketOnly",
 	UFNotification: "UFNotification",
 }
+//string returns the usagflag in human-readable form.
+func(fl UsageFlag)String() string {
+	//no flags are set.
+	if fl == 0 {
+		return "0x0"
+	}
 
+	//add indivvidual bit falgs.
+	s := ""
+	for flag := UFWalletOnly;flag < highestUsageFlagBit; flag <<= 1 {
+		if fl&flag == flag{
+			s += usageFlagStrings[flag] + "|"
+			fl -= flag
+		}
+	}
+
+	//add remaining value as raw hex.
+	s = strings.TrimRight(s,"|")
+	if fl != 0 {
+		s += "|0x" + strconv.FormatUint(uint64(fl),16)
+	}
+	s = strings.TrimLeft(s,"|")
+	return s
+
+}
 
 
 
