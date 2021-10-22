@@ -85,6 +85,70 @@ var (
 )
 
 
+//basekingstring returns the base kind for a given refeect.type after
+//indirecting through all pointer.
+func baseKingString(rt reflect.Type) string{
+	numIndirects := 0
+	for rt.Kind() == reflect.Ptr {
+		numIndirects++
+		rt = rt.Elem()
+	}
+
+	return fmt.Sprintf("%s%s",strings.Repeat("*",numIndirects),rt.Kind())
+}
+
+//isacceutbaleking returns wheher or not be passed field type is a supported
+//type .it is called after the first pointer indriction.so further pointers
+//are not supported.
+
+func isAcceptableKind(kind reflect.Kind) bool {
+	switch kind {
+	case reflect.Chan:
+		fallthrough
+	case reflect.Complex64:
+		fallthrough
+	case reflect.Complex128:
+		fallthrough
+	case reflect.Func:
+		fallthrough
+	case reflect.Ptr:
+		fallthrough
+	case reflect.Interface:
+		return false
+	}
+
+	return true
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 //mustregistercmd perform the same function as registercmd expect it panics
 //if there is an error. this should only be called form package init functions.
 func MustRegisterCmd(method string, cmd interface{}, flags UsageFlag) {
@@ -92,3 +156,19 @@ func MustRegisterCmd(method string, cmd interface{}, flags UsageFlag) {
 		panic(fmt.Sprintf("failed to register type %q:%v\n", method, err))
 	}
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
