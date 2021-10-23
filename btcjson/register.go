@@ -78,23 +78,22 @@ type methodInfo struct {
 
 var (
 	//this fields are used to map the registed types to method names.
-	registerLock sync.RWMutex
+	registerLock         sync.RWMutex
 	methodToConcreteType = make(map[string]reflect.Type)
-	methodToInfo = make(map[string]methodInfo)
+	methodToInfo         = make(map[string]methodInfo)
 	concreteTypeToMethod = make(map[reflect.Type]string)
 )
 
-
 //basekingstring returns the base kind for a given refeect.type after
 //indirecting through all pointer.
-func baseKingString(rt reflect.Type) string{
+func baseKingString(rt reflect.Type) string {
 	numIndirects := 0
 	for rt.Kind() == reflect.Ptr {
 		numIndirects++
 		rt = rt.Elem()
 	}
 
-	return fmt.Sprintf("%s%s",strings.Repeat("*",numIndirects),rt.Kind())
+	return fmt.Sprintf("%s%s", strings.Repeat("*", numIndirects), rt.Kind())
 }
 
 //isacceutbaleking returns wheher or not be passed field type is a supported
@@ -120,22 +119,44 @@ func isAcceptableKind(kind reflect.Kind) bool {
 	return true
 }
 
+//registercmd registers a new command that will automatically marshall to and
+//from json-prc with full type checking and positional parameter support. it
+//aslo accepts usage flags which identify the circumstances under which hte
+//command can be used.
 
+//this package automatically registers all of the exported commands by
+//default using this function ,however it is also exported so callers can
+//esaily register custom types.
 
+//the type fomat is very strict since it needs to be albe to automatically
+//marshal to and from json-rpc 1.0 the following enumrates the requirements
 
+//the provided command must be s single pointer to a struct
+//all fields must be exported.
+//the order of the positional parameters in the marshalled json will be in /
+// the same order as declared in the struct definition.
 
+//struct embeding is not supported.
+//struct fielss may not be channels ,functions ,complex,or interface
+//a field in the provided struct with a pointer is treated as optional
+//multiple indirections are not supported.
 
+//Once the first optional field (pointer) is encountered, the remaining
+// fields must also be optional fields (pointers) as required by positional
+// params
+// A field that has a 'jsonrpcdefault' struct tag must be an optional field
+//  (pointer)
 
+//note:this function only needs to be able to examine the structre fo the
+//passed struct. so it does need to be an actual instance .therefore.
+//it is recommanded to simply pass a nil pointer cast to the appropriate type .
+//for example.(foocmd)(nil)
 
+func RegisterCmd (method string ,cmd interface{},flags UsageFlag) error{
+	registerLock.Lock()
+	defer registerLock.Unlock()
 
-
-
-
-
-
-
-
-
+}
 
 
 
@@ -156,19 +177,3 @@ func MustRegisterCmd(method string, cmd interface{}, flags UsageFlag) {
 		panic(fmt.Sprintf("failed to register type %q:%v\n", method, err))
 	}
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
