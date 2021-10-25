@@ -156,6 +156,12 @@ func RegisterCmd (method string ,cmd interface{},flags UsageFlag) error{
 	registerLock.Lock()
 	defer registerLock.Unlock()
 
+	if _,ok := methodToConcreteType[method];ok {
+		str := fmt.Sprintf("method %q is already registed",method)
+		return makeError(ErrDuplicateMethod,str)
+	}
+
+	//ensure that no
 }
 
 
