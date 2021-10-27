@@ -161,8 +161,14 @@ func RegisterCmd (method string ,cmd interface{},flags UsageFlag) error{
 		return makeError(ErrDuplicateMethod,str)
 	}
 
-	//ensure that no
+	//ensure that no unrecongized flag bits were speicfied.
+	if ^(highestUsageFlagBit-1) & flags != 0 {
+		str := fmt.Sprintf("invalid usage flags speicifed for method "+
+			"%s:%v",method,flags)
+		return makeError(ErrInvalidUsageFlags, str)
+	}
 }
+
 
 
 
