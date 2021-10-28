@@ -167,6 +167,29 @@ func RegisterCmd (method string ,cmd interface{},flags UsageFlag) error{
 			"%s:%v",method,flags)
 		return makeError(ErrInvalidUsageFlags, str)
 	}
+
+	rtp := reflect.TypeOF(cmd)
+	if rtp.Kind() != reflect.Ptr {
+		str := fmt.Sprintf("type must be *struct not '%s(%s)'",rtp,rtp.kind())
+		return makeError(ErrInvalidType,str)
+	}
+
+	rt := rtp.Elem()
+	if rt.Kind() != reflect.Struct {
+		str := fmt.Sprintf("type must be *struct not '%s(*%s)'",rtp,rt.Kind())
+		return makeError(ErrInvalidType,str)
+	}
+
+
+
+
+
+
+
+
+
+
+
 }
 
 
