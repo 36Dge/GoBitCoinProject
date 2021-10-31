@@ -183,9 +183,28 @@ func RegisterCmd (method string ,cmd interface{},flags UsageFlag) error{
 	//enumerate the struct fields to valialbe them and gather parameter
 	//information
 	numFields := rt.NumField()
-	numOptFields : =0
+	numOptFields := 0
 	defaults := make(map[int]reflect.Value)
 
+	for i := 0; i < numFields;i++{
+		if rtf.Anonymous {
+			str := fmt.Sprintf("embeded fields are not supported " +
+				"(field name :%q)",rtf.Name)
+			return makeError(ErrEmbeddedType ,str)
+		}
+
+		if rtf.PkgPath != "" {
+			str := fmt.Sprintf("unexported fields are not supported"+
+				"(field name:%q)",rtf.Name)
+			return makeError(ErrUnexportedField,str)
+		}
+
+
+
+
+
+
+	}
 
 
 
