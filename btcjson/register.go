@@ -199,6 +199,8 @@ func RegisterCmd (method string ,cmd interface{},flags UsageFlag) error{
 			return makeError(ErrUnexportedField,str)
 		}
 
+		// Disallow types that can't be JSON encoded.  Also, determine
+		// if the field is optional based on it being a pointer.
 
 
 
