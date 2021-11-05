@@ -202,7 +202,20 @@ func RegisterCmd (method string ,cmd interface{},flags UsageFlag) error{
 		// Disallow types that can't be JSON encoded.  Also, determine
 		// if the field is optional based on it being a pointer.
 
-
+		var isOptional bool
+		switch kind := rtf.Type.Kind(); kind {
+		case reflect.Ptr:
+			isOptional = true
+			kind = rtf.Type.Elem().Kind()
+			fallthrough
+		default:
+			if !isAcceptableKind(kind) {
+				str := fmt.Sprintf("unsupported field type "+
+					"'%s (%s)' (field name %q)", rtf.Type,
+					baseKindString(rtf.Type), rtf.Name)
+				return makeError(ErrUnsupportedFieldType, str)
+			}
+		}
 
 
 
