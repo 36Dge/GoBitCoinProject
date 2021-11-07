@@ -153,32 +153,32 @@ func isAcceptableKind(kind reflect.Kind) bool {
 //it is recommanded to simply pass a nil pointer cast to the appropriate type .
 //for example.(foocmd)(nil)
 
-func RegisterCmd (method string ,cmd interface{},flags UsageFlag) error{
+func RegisterCmd(method string, cmd interface{}, flags UsageFlag) error {
 	registerLock.Lock()
 	defer registerLock.Unlock()
 
-	if _,ok := methodToConcreteType[method];ok {
-		str := fmt.Sprintf("method %q is already registed",method)
-		return makeError(ErrDuplicateMethod,str)
+	if _, ok := methodToConcreteType[method]; ok {
+		str := fmt.Sprintf("method %q is already registed", method)
+		return makeError(ErrDuplicateMethod, str)
 	}
 
 	//ensure that no unrecongized flag bits were speicfied.
-	if ^(highestUsageFlagBit-1) & flags != 0 {
+	if ^(highestUsageFlagBit-1)&flags != 0 {
 		str := fmt.Sprintf("invalid usage flags speicifed for method "+
-			"%s:%v",method,flags)
+			"%s:%v", method, flags)
 		return makeError(ErrInvalidUsageFlags, str)
 	}
 
 	rtp := reflect.TypeOF(cmd)
 	if rtp.Kind() != reflect.Ptr {
-		str := fmt.Sprintf("type must be *struct not '%s(%s)'",rtp,rtp.kind())
-		return makeError(ErrInvalidType,str)
+		str := fmt.Sprintf("type must be *struct not '%s(%s)'", rtp, rtp.kind())
+		return makeError(ErrInvalidType, str)
 	}
 
 	rt := rtp.Elem()
 	if rt.Kind() != reflect.Struct {
-		str := fmt.Sprintf("type must be *struct not '%s(*%s)'",rtp,rt.Kind())
-		return makeError(ErrInvalidType,str)
+		str := fmt.Sprintf("type must be *struct not '%s(*%s)'", rtp, rt.Kind())
+		return makeError(ErrInvalidType, str)
 	}
 
 	//enumerate the struct fields to valialbe them and gather parameter
@@ -187,17 +187,17 @@ func RegisterCmd (method string ,cmd interface{},flags UsageFlag) error{
 	numOptFields := 0
 	defaults := make(map[int]reflect.Value)
 
-	for i := 0; i < numFields;i++{
+	for i := 0; i < numFields; i++ {
 		if rtf.Anonymous {
-			str := fmt.Sprintf("embeded fields are not supported " +
-				"(field name :%q)",rtf.Name)
-			return makeError(ErrEmbeddedType ,str)
+			str := fmt.Sprintf("embeded fields are not supported "+
+				"(field name :%q)", rtf.Name)
+			return makeError(ErrEmbeddedType, str)
 		}
 
 		if rtf.PkgPath != "" {
 			str := fmt.Sprintf("unexported fields are not supported"+
-				"(field name:%q)",rtf.Name)
-			return makeError(ErrUnexportedField,str)
+				"(field name:%q)", rtf.Name)
+			return makeError(ErrUnexportedField, str)
 		}
 
 		// Disallow types that can't be JSON encoded.  Also, determine
@@ -220,53 +220,42 @@ func RegisterCmd (method string ,cmd interface{},flags UsageFlag) error{
 
 		//ensure the default value can be unmarshalled into the type
 		//and that default are only specified for optional fields.
-		if tag := rtf.Tag.Get("jsonrpcdefault");tag != ""{
+		if tag := rtf.Tag.Get("jsonrpcdefault"); tag != "" {
 			if !isOptional {
 				str := fmt.Sprintf("required fields must not "+
 					"have a default specifed (field name "+
-					"%q)",rtf.Name)
-				return makeError(ErrNonOptionalDefault,str)
+					"%q)", rtf.Name)
+				return makeError(ErrNonOptionalDefault, str)
 			}
 
 			rvf := reflect.New(rtf.Type.Elem())
-			err := json.Unmarshal([]byte(tag),rvf.Interface())
+			err := json.Unmarshal([]byte(tag), rvf.Interface())
 			if err != nil {
 				str := fmt.Sprintf("default value of %q is "+
-					"the wrong type (field name %q)",tag,
+					"the wrong type (field name %q)", tag,
 					rtf.Name)
-				return makeError(ErrMismatchedDefault,str)
+				return makeError(ErrMismatchedDefault, str)
 			}
-			defaults[i] =rvf
+			defaults[i] = rvf
 
 		}
 
-
-
 	}
 
+	//update the registration maps
 
-
-
-
-
-
-
-
+	methodToConcreteType[method] = rtp
+	methodToInfo[method] = methodInfo{
+		maxParams:    numFields,
+		numReqParams: numFields - numOptFields,
+		numOptParams: numOptFields,
+		defaults:     defaults,
+		flags:        flags,
+	}
+	concreteTypeToMethod[rtp] = method
+	return nil
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 //mustregistercmd perform the same function as registercmd expect it panics
 //if there is an error. this should only be called form package init functions.
@@ -275,3 +264,7 @@ func MustRegisterCmd(method string, cmd interface{}, flags UsageFlag) {
 		panic(fmt.Sprintf("failed to register type %q:%v\n", method, err))
 	}
 }
+
+
+
+
