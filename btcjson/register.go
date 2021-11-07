@@ -1,6 +1,7 @@
 package btcjson
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -215,6 +216,28 @@ func RegisterCmd (method string ,cmd interface{},flags UsageFlag) error{
 					baseKindString(rtf.Type), rtf.Name)
 				return makeError(ErrUnsupportedFieldType, str)
 			}
+		}
+
+		//ensure the default value can be unmarshalled into the type
+		//and that default are only specified for optional fields.
+		if tag := rtf.Tag.Get("jsonrpcdefault");tag != ""{
+			if !isOptional {
+				str := fmt.Sprintf("required fields must not "+
+					"have a default specifed (field name "+
+					"%q)",rtf.Name)
+				return makeError(ErrNonOptionalDefault,str)
+			}
+
+			rvf := reflect.New(rtf.Type.Elem())
+			err := json.Unmarshal([]byte(tag),rvf.Interface())
+			if err != nil {
+				str := fmt.Sprintf("default value of %q is "+
+					"the wrong type (field name %q)",tag,
+					rtf.Name)
+				return makeError(ErrMismatchedDefault,str)
+			}
+			defaults[i] =rvf
+
 		}
 
 
