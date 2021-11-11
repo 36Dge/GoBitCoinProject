@@ -99,3 +99,5 @@ func (e Error) Error() string {
 func makeError(c ErrorCode, desc string) Error {
 	return Error{ErrorCode: c, Description: desc}
 }
+
+//over
