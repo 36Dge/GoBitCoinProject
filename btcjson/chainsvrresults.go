@@ -67,3 +67,27 @@ type GetBlockVerboseTxResult struct {
 	PreviousHash  string        `json:"previousblockhash"`
 	NextHash      string        `json:"nextblockhash,omitempty"`
 }
+
+
+
+
+
+//estimatesmartfeeresult modesl the data returned buy the chain server
+//estimatesmartfee comand.
+type EstimateSmartFeeResult struct {
+	FeeRate *float64 `json:"feerate,omitempty"`
+	Errors []string `json:"errors,omitempty"`
+	Blocks int64 `json:"blocks"`
+}
+
+
+
+
+
+
+
+
+
+
+
+
