@@ -1,6 +1,5 @@
 package btcjson
 
-
 // GetRawMempoolVerboseResult models the data returned from the getrawmempool
 // command when the verbose flag is set.  When the verbose flag is not set,
 // getrawmempool returns an array of transaction hashes.
@@ -15,7 +14,6 @@ type GetRawMempoolVerboseResult struct {
 	CurrentPriority  float64  `json:"currentpriority"`
 	Depends          []string `json:"depends"`
 }
-
 
 // GetBlockVerboseResult models the data from the getblock command when the
 // verbose flag is set to 1.  When the verbose flag is set to 0, getblock returns a
@@ -68,16 +66,13 @@ type GetBlockVerboseTxResult struct {
 	NextHash      string        `json:"nextblockhash,omitempty"`
 }
 
-
-
-
-
-//estimatesmartfeeresult modesl the data returned buy the chain server
-//estimatesmartfee comand.
-type EstimateSmartFeeResult struct {
-	FeeRate *float64 `json:"feerate,omitempty"`
-	Errors []string `json:"errors,omitempty"`
-	Blocks int64 `json:"blocks"`
+//txrawdecoderesult model the data from the decoderawtransaction command.
+type TxRawDecodeResult struct {
+	Txid     string `josn:"txid"`
+	Version  int32  `json:"version"`
+	Locktime uint32 `json:"locktime"`
+	Vin      []Vin `json:"vin"`
+	Vout     []Vout `json:"vout"`
 }
 
 
@@ -89,5 +84,18 @@ type EstimateSmartFeeResult struct {
 
 
 
+//validateAddressChainResult models the data returned by the chain server
+//validateaddress command.
+type ValidateAddressChainResult struct {
+	isValid bool 	`json:"is_valid"`
+	Address string 	`json:"address,omitempty"`
+}
 
 
+//estimatesmartfeeresult modesl the data returned buy the chain server
+//estimatesmartfee comand.
+type EstimateSmartFeeResult struct {
+	FeeRate *float64 `json:"feerate,omitempty"`
+	Errors  []string `json:"errors,omitempty"`
+	Blocks  int64    `json:"blocks"`
+}
