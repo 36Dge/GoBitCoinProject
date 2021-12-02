@@ -71,26 +71,35 @@ type TxRawDecodeResult struct {
 	Txid     string `josn:"txid"`
 	Version  int32  `json:"version"`
 	Locktime uint32 `json:"locktime"`
-	Vin      []Vin `json:"vin"`
+	Vin      []Vin  `json:"vin"`
 	Vout     []Vout `json:"vout"`
 }
 
-
-
-
-
-
-
-
-
+//searchrawtrnasactionresult models the date from the serachrawtransaction
+//command.
+type SearchRawTransactionResult struct {
+	Hex           string       `json:"hex,omitempty"`
+	Txid          string       `json:"txid"`
+	Hash          string       `json:"hash"`
+	Size          string       `json:"size"`
+	Vsize         string       `json:"vsize"`
+	Weight        string       `json:"weight"`
+	Version       int32        `json:"version"`
+	LockTime      uint32       `json:"lock_time"`
+	Vin           []VinPrevOut `json:"vin"`
+	Vout          []Vout       `json:"vout"`
+	BlockHash     string       `json:"block_hash,omitempty"`
+	Confirmations uint64       `json:"confirmations,omitempty"`
+	Time          uint64       `json:"time,omitempty"`
+	Blocktime     int64        `json:"blocktime,omitempty"`
+}
 
 //validateAddressChainResult models the data returned by the chain server
 //validateaddress command.
 type ValidateAddressChainResult struct {
-	isValid bool 	`json:"is_valid"`
-	Address string 	`json:"address,omitempty"`
+	isValid bool   `json:"is_valid"`
+	Address string `json:"address,omitempty"`
 }
-
 
 //estimatesmartfeeresult modesl the data returned buy the chain server
 //estimatesmartfee comand.
