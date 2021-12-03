@@ -66,6 +66,23 @@ type GetBlockVerboseTxResult struct {
 	NextHash      string        `json:"nextblockhash,omitempty"`
 }
 
+//txrawresult modes the data from the getrawtrnasaction command.
+type TxRawResult struct {
+	Hex           string
+	Txid          string
+	Hash          string
+	Size          int32
+	Vsize         int32
+	Version       int32
+	LockTime      uint32
+	Vin           []Vin
+	Vout          []Vout
+	BlockHash     string
+	Confirmations uint64
+	Time          int64
+	Blocktime     int64
+}
+
 //txrawdecoderesult model the data from the decoderawtransaction command.
 type TxRawDecodeResult struct {
 	Txid     string `josn:"txid"`
