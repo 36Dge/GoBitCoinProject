@@ -66,6 +66,24 @@ type GetBlockVerboseTxResult struct {
 	NextHash      string        `json:"nextblockhash,omitempty"`
 }
 
+
+
+
+
+//infochainresult models the data returned by the chain server.
+type InfoChainResult struct {
+	Version         int32   `json:"version"`
+	ProtocolVersion int32   `json:"protocol_version"`
+	Blocks          int32   `json:"blocks"`
+	TimeOffset      int32   `json:"time_offset"`
+	Connections     int32   `json:"connections"`
+	Proxy           string  `json:"proxy"`
+	Difficulty      float64 `json:"difficulty"`
+	TestNet         bool    `json:"test_net"`
+	RelayFee        float64 `json:"relay_fee"`
+	Errors          string  `json:"errors"`
+}
+
 //txrawresult modes the data from the getrawtrnasaction command.
 type TxRawResult struct {
 	Hex           string
