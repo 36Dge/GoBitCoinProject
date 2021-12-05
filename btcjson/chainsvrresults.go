@@ -66,9 +66,13 @@ type GetBlockVerboseTxResult struct {
 	NextHash      string        `json:"nextblockhash,omitempty"`
 }
 
-
-
-
+//getworkresult models the data from the getwork command.
+type GetWorkResult struct {
+	Data     string `json:"data"`
+	Hash1    string `json:"hash_1"`
+	Midsdata string `json:"midsdata"`
+	Target   string `json:"target"`
+}
 
 //infochainresult models the data returned by the chain server.
 type InfoChainResult struct {
