@@ -66,6 +66,35 @@ type GetBlockVerboseTxResult struct {
 	NextHash      string        `json:"nextblockhash,omitempty"`
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+//getmininginforesult models the data from the getminnginfo command.
+type GetMiningInfoResult struct {
+	Blocks             int64   `json:"blocks"`
+	CurrentBlockSize   uint64  `json:"current_block_size"`
+	CurrentBlockWeight uint64  `json:"current_block_weight"`
+	CurrentBlockTx     uint64  `json:"current_block_tx"`
+	Difficulty         float64 `json:"difficulty"`
+	Errors             string  `json:"errors"`
+	Generate           bool    `json:"generate"`
+	GenProcLimit       int32   `json:"genproclimit"`
+	HashesPerSec       int64   `json:"hashespersec"`
+	NetworkHashPS      int64   `json:"network_hash_ps"`
+	PooledTx           int64   `json:"pooled_tx"`
+	TestNet            bool    `json:"test_net"`
+}
+
 //getworkresult models the data from the getwork command.
 type GetWorkResult struct {
 	Data     string `json:"data"`
