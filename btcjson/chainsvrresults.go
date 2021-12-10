@@ -66,7 +66,13 @@ type GetBlockVerboseTxResult struct {
 	NextHash      string        `json:"nextblockhash,omitempty"`
 }
 
-
+//vout models parts of the tx data.it is defined separately since both
+//getrawtrnasaxtion and decoderawtransaction use the same strutere.
+type Vout struct {
+	Value float64 `json:"value"`
+	N uint32 `json:"n"`
+	ScriptPubKey ScriptPubKeyResult `json:"scriptPubKey"`
+}
 
 
 
