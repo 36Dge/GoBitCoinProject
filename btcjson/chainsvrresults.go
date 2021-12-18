@@ -81,7 +81,9 @@ type Vout struct {
 
 
 
-
+func(v *VinPrevOut) HashWitness()bool {
+	return len(v.Coinvbase) > 0
+}
 
 
 
