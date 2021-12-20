@@ -85,6 +85,12 @@ func(v *VinPrevOut) HashWitness()bool {
 	return len(v.Coinvbase) > 0
 }
 
+// HasWitness returns a bool to show if a Vin has any witness data associated
+// with it or not.
+func (v *VinPrevOut) HasWitness() bool {
+	return len(v.Witness) > 0
+}
+
 
 
 //getmininginforesult models the data from the getminnginfo command.
