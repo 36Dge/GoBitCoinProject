@@ -74,7 +74,11 @@ type Vout struct {
 	ScriptPubKey ScriptPubKeyResult `json:"scriptPubKey"`
 }
 
-
+//prevout represent previous output for an input Vin.
+type PrevOut struct {
+	Address []string `json:"address,omitempty"`
+	Value float64 `json:"value"`
+}
 
 
 
