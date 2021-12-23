@@ -69,23 +69,18 @@ type GetBlockVerboseTxResult struct {
 //vout models parts of the tx data.it is defined separately since both
 //getrawtrnasaxtion and decoderawtransaction use the same strutere.
 type Vout struct {
-	Value float64 `json:"value"`
-	N uint32 `json:"n"`
+	Value        float64            `json:"value"`
+	N            uint32             `json:"n"`
 	ScriptPubKey ScriptPubKeyResult `json:"scriptPubKey"`
 }
 
 //prevout represent previous output for an input Vin.
 type PrevOut struct {
 	Address []string `json:"address,omitempty"`
-	Value float64 `json:"value"`
+	Value   float64  `json:"value"`
 }
 
-
-
-
-
-
-func(v *VinPrevOut) HashWitness()bool {
+func (v *VinPrevOut) HashWitness() bool {
 	return len(v.Coinvbase) > 0
 }
 
@@ -95,7 +90,13 @@ func (v *VinPrevOut) HasWitness() bool {
 	return len(v.Witness) > 0
 }
 
-
+//vout models parts of the tx data ,it is defined separately since
+//both getrawtranction and decoderawtransaction use the same structure.
+type Vout struct {
+	Value        float64            `json:"value"`
+	N            uint32             `json:"n"`
+	ScriptPubKey scriptPubKeyResult `json:"scriptPubKey"`
+}
 
 //getmininginforesult models the data from the getminnginfo command.
 type GetMiningInfoResult struct {
