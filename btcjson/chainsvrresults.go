@@ -1,5 +1,23 @@
 package btcjson
 
+//getblockheaderverboseresult  models the data from the getblockheader command when
+//the verbose flag is set ,when the verbose flag is not set ,get blockheader
+//returns a hex-encode string
+type GetBlockHeaderVerboseResult struct {
+	Hash          string  `json:"hash"`
+	Confirmations int64   `json:"confirmations"`
+	Height        int32   `json:"height"`
+	Version       int32   `json:"version"`
+	VersionHex    string  `json:"versionhex"`
+	MerkleRoot    string  `json:"merkleroot"`
+	Time          int64   `json:"time"`
+	Nonce         uint64  `json:"nonce"`
+	Bits          string  `json:"bits"`
+	Difficulty    float64 `json:"difficulty"`
+	PreviousHash  string  `json:"previous_hash"`
+	NextHash      string  `json:"next_hash"`
+}
+
 // GetRawMempoolVerboseResult models the data returned from the getrawmempool
 // command when the verbose flag is set.  When the verbose flag is not set,
 // getrawmempool returns an array of transaction hashes.
