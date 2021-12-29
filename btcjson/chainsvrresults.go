@@ -51,6 +51,20 @@ type GetBlockStatusResult struct {
 	UTXOSizeIncrease   int64   `json:"utxo_size_inc"`
 }
 
+// GetBlockVerboseResult models the data from the getblock command when the
+// verbose flag is set to 1.  When the verbose flag is set to 0, getblock returns a
+// hex-encoded string. When the verbose flag is set to 1, getblock returns an object
+// whose tx field is an array of transaction hashes. When the verbose flag is set to 2,
+// getblock returns an object whose tx field is an array of raw transactions.
+// Use GetBlockVerboseTxResult to unmarshal data received from passing verbose=2 to getblock.
+
+
+
+
+
+
+
+
 
 // GetRawMempoolVerboseResult models the data returned from the getrawmempool
 // command when the verbose flag is set.  When the verbose flag is not set,
