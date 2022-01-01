@@ -120,7 +120,14 @@ type CreateMultiSigResult struct {
 }
 
 
-
+//decodeScriptresult models the data returned from the decodescript command.
+type DecodeScriptResult struct {
+	Asm string `json:"asm"`
+	ReqSigs int32 `json:"reqSigs,omitempty"`
+	Type string `json:"type"`
+	Address []string `json:"address,omitempty"`
+	P2sh string `json:"p_2_sh,omitempty"`
+}
 
 
 
