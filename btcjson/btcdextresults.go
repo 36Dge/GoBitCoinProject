@@ -10,3 +10,12 @@ type VersionResult struct {
 	Prerelease    string `json:"prerelease"`
 	BuildMetadata string `json:"build_metadata"`
 }
+
+
+
+
+
+
+
+
+
