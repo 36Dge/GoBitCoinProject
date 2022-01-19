@@ -19,7 +19,34 @@ const(
 	//  Failures related to improper API usage.
 	// ------------------------
 
+	//ErrInvalidFlags is returned when the passed flags to newengine
+	//contain an invalid combication
 	ErrInvalidFlags
+
+	//errinvalidindex is returned when an out-of-bounds ins passed to
+	//a function
+	ErrInvalidIndex
+
+	//errunsupporetedaddress is returned when a concrete type that
+	//implements a btcutil.address is not a supported type.
+	ErrUnsupportedAddress
+	//errnotmultisigscript is returned from calcmultisigstats when the
+	//provided script is not a multisig script .
+	errNotMultisigScript
+
+	//errtoomanyrequiredsigs isreturned from multisigscript when the
+	//specified number of required signatures is large than the number of
+	//provided public keys.
+	ErrTooManyRequiredSigs
+	//errtoomuchnulldata is retuned from nulldatascript when the length of
+	//the provided data exceeds maxdatacarrierSize.
+	ErrTooMuchNullData
+
+	//-------------
+	// Failure related to final execution state.
+	//-------------
+
+
 
 
 )
