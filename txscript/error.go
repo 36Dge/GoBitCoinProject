@@ -46,6 +46,24 @@ const(
 	// Failure related to final execution state.
 	//-------------
 
+	//erreralyreturn is retuned when op_return is execcuted in the script
+	ErrEarlyReturn
+
+	//erremptystatck is returned when the script evaluated without error.
+	//but terminated with an empty top stack element.
+	ErrEmptyStack
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
