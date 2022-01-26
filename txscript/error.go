@@ -53,6 +53,28 @@ const(
 	//but terminated with an empty top stack element.
 	ErrEmptyStack
 
+	//errevalfalse is returned when the script evaluated without error but
+	//terminated with a false top stack element.
+	ErrEvalFalse
+
+	//errscriptUnfinished is returned when checkerrorcondition is called on
+	//a script that has not finished execting.
+	ErrScriptUnfinished
+
+	//errScriptdone is ...
+	// made once all of them have already been executed.  This can happen
+	// due to things such as a second call to Execute or calling Step after
+	// all opcodes have already been executed.
+
+	ErrInvalidProgramCounter
+
+	// --------------
+	//failures related to exceeding maximun allowed limits.
+	//---------------
+
+
+
+
 
 
 
