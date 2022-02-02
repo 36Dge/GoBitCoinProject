@@ -107,6 +107,13 @@ const(
 	// input may fail with this code.
 	ErrNumberTooBig
 
+	//--------
+	//faliure related to verification operations
+	//------
+
+	//errverify is returned when op_verfy is encounted in a script and
+	//the top item on the data stack does not evalute to true.
+
 
 
 
