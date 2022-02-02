@@ -72,6 +72,42 @@ const(
 	//failures related to exceeding maximun allowed limits.
 	//---------------
 
+	//errscripttoobig is returned if a script is larger than maxscriptsize
+
+	ErrScriptTooBig
+
+	//errelementtoobig is returned if the size of an element to be pushed
+	//to the stack is over maxscriptelementsize.
+	ErrElementTooBig
+
+
+	//errtoomanyoperations is returned is a script has more than
+	//maxopsperscript opcodes that do not push data.
+	ErrTooManyOperations
+
+	//errstackoverflow is returned when stack and altstack combined depth
+	//is over the limit
+	ErrStackOverflow
+
+	//errinvalidpubkeycount is returned when the number of public
+	//keys specified for a mulsig is either negative or greater than
+	//maxpubkeypermultisig.
+	ErrInvalidPubKeyCount
+
+	//ErrInvalidsignaturecount is returned when the number of signamtures
+	//specified for a multisig either nagative or greater than the number
+	//of public keys.
+	ErrInvalidSignatureCount
+
+	// ErrNumberTooBig is returned when the argument for an opcode that
+	// expects numeric input is larger than the expected maximum number of
+	// bytes.  For the most part, opcodes that deal with stack manipulation
+	// via offsets, arithmetic, numeric comparison, and boolean logic are
+	// those that this applies to.  However, any opcode that expects numeric
+	// input may fail with this code.
+	ErrNumberTooBig
+
+
 
 
 
