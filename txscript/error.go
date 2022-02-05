@@ -114,6 +114,81 @@ const(
 	//errverify is returned when op_verfy is encounted in a script and
 	//the top item on the data stack does not evalute to true.
 
+	//errvierfy is retuned when op_verify
+
+
+
+
+
+
+	//map of errcode values back to their constant names for perty printing
+
+	var errorCodeStrings = map[ErrorCode]string {
+		ErrInternal:                           "ErrInternal",
+		ErrInvalidFlags:                       "ErrInvalidFlags",
+		ErrInvalidIndex:                       "ErrInvalidIndex",
+		ErrUnsupportedAddress:                 "ErrUnsupportedAddress",
+		ErrNotMultisigScript:                  "ErrNotMultisigScript",
+		ErrTooManyRequiredSigs:                "ErrTooManyRequiredSigs",
+		ErrTooMuchNullData:                    "ErrTooMuchNullData",
+		ErrEarlyReturn:                        "ErrEarlyReturn",
+		ErrEmptyStack:                         "ErrEmptyStack",
+		ErrEvalFalse:                          "ErrEvalFalse",
+		ErrScriptUnfinished:                   "ErrScriptUnfinished",
+		ErrInvalidProgramCounter:              "ErrInvalidProgramCounter",
+		ErrScriptTooBig:                       "ErrScriptTooBig",
+		ErrElementTooBig:                      "ErrElementTooBig",
+		ErrTooManyOperations:                  "ErrTooManyOperations",
+		ErrStackOverflow:                      "ErrStackOverflow",
+		ErrInvalidPubKeyCount:                 "ErrInvalidPubKeyCount",
+		ErrInvalidSignatureCount:              "ErrInvalidSignatureCount",
+		ErrNumberTooBig:                       "ErrNumberTooBig",
+		ErrVerify:                             "ErrVerify",
+		ErrEqualVerify:                        "ErrEqualVerify",
+		ErrNumEqualVerify:                     "ErrNumEqualVerify",
+		ErrCheckSigVerify:                     "ErrCheckSigVerify",
+		ErrCheckMultiSigVerify:                "ErrCheckMultiSigVerify",
+		ErrDisabledOpcode:                     "ErrDisabledOpcode",
+		ErrReservedOpcode:                     "ErrReservedOpcode",
+		ErrMalformedPush:                      "ErrMalformedPush",
+		ErrInvalidStackOperation:              "ErrInvalidStackOperation",
+		ErrUnbalancedConditional:              "ErrUnbalancedConditional",
+		ErrMinimalData:                        "ErrMinimalData",
+		ErrInvalidSigHashType:                 "ErrInvalidSigHashType",
+		ErrSigTooShort:                        "ErrSigTooShort",
+		ErrSigTooLong:                         "ErrSigTooLong",
+		ErrSigInvalidSeqID:                    "ErrSigInvalidSeqID",
+		ErrSigInvalidDataLen:                  "ErrSigInvalidDataLen",
+		ErrSigMissingSTypeID:                  "ErrSigMissingSTypeID",
+		ErrSigMissingSLen:                     "ErrSigMissingSLen",
+		ErrSigInvalidSLen:                     "ErrSigInvalidSLen",
+		ErrSigInvalidRIntID:                   "ErrSigInvalidRIntID",
+		ErrSigZeroRLen:                        "ErrSigZeroRLen",
+		ErrSigNegativeR:                       "ErrSigNegativeR",
+		ErrSigTooMuchRPadding:                 "ErrSigTooMuchRPadding",
+		ErrSigInvalidSIntID:                   "ErrSigInvalidSIntID",
+		ErrSigZeroSLen:                        "ErrSigZeroSLen",
+		ErrSigNegativeS:                       "ErrSigNegativeS",
+		ErrSigTooMuchSPadding:                 "ErrSigTooMuchSPadding",
+		ErrSigHighS:                           "ErrSigHighS",
+		ErrNotPushOnly:                        "ErrNotPushOnly",
+		ErrSigNullDummy:                       "ErrSigNullDummy",
+		ErrPubKeyType:                         "ErrPubKeyType",
+		ErrCleanStack:                         "ErrCleanStack",
+		ErrNullFail:                           "ErrNullFail",
+		ErrDiscourageUpgradableNOPs:           "ErrDiscourageUpgradableNOPs",
+		ErrNegativeLockTime:                   "ErrNegativeLockTime",
+		ErrUnsatisfiedLockTime:                "ErrUnsatisfiedLockTime",
+		ErrWitnessProgramEmpty:                "ErrWitnessProgramEmpty",
+		ErrWitnessProgramMismatch:             "ErrWitnessProgramMismatch",
+		ErrWitnessProgramWrongLength:          "ErrWitnessProgramWrongLength",
+		ErrWitnessMalleated:                   "ErrWitnessMalleated",
+		ErrWitnessMalleatedP2SH:               "ErrWitnessMalleatedP2SH",
+		ErrWitnessUnexpected:                  "ErrWitnessUnexpected",
+		ErrMinimalIf:                          "ErrMinimalIf",
+		ErrWitnessPubKeyType:                  "ErrWitnessPubKeyType",
+		ErrDiscourageUpgradableWitnessProgram: "ErrDiscourageUpgradableWitnessProgram",
+	}
 
 
 
